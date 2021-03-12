@@ -86,9 +86,10 @@ func NewFactory(baseName string, config VeleroConfig) Factory {
 
 	// We didn't get the namespace via env var or config file, so use the default.
 	// Command line flags will override when BindFlags is called.
-	if f.namespace == "" {
-		f.namespace = velerov1api.DefaultNamespace
-	}
+	// TODO(freyjo): Find a better way than simply commenting this out.
+	//if f.namespace == "" {
+	//	f.namespace = velerov1api.DefaultNamespace
+	//}
 
 	f.flags.StringVar(&f.kubeconfig, "kubeconfig", "", "Path to the kubeconfig file to use to talk to the Kubernetes apiserver. If unset, try the environment variable KUBECONFIG, as well as in-cluster configuration")
 	f.flags.StringVarP(&f.namespace, "namespace", "n", f.namespace, "The namespace in which Velero should operate")

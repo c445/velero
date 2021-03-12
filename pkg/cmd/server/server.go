@@ -344,11 +344,15 @@ func (s *server) run() error {
 		go s.runProfiler()
 	}
 
+	// TODO(freyjo): Adjust comment as soon as we adjust Velero so that the server process and the CRs
+	//  are allowed to reside in different namespaces.
 	// Since s.namespace, which specifies where backups/restores/schedules/etc. should live,
 	// *could* be different from the namespace where the Velero server pod runs, check to make
 	// sure it exists, and fail fast if it doesn't.
-	if err := s.namespaceExists(s.namespace); err != nil {
-		return err
+	if s.namespace != "" {
+		if err := s.namespaceExists(s.namespace); err != nil {
+			return err
+		}
 	}
 
 	if err := s.initDiscoveryHelper(); err != nil {
@@ -359,9 +363,10 @@ func (s *server) run() error {
 		return err
 	}
 
-	if err := s.initRestic(); err != nil {
-		return err
-	}
+	// TODO(freyjo): Find a better way than simply commenting this out.
+	//if err := s.initRestic(); err != nil {
+	//	return err
+	//}
 
 	if err := s.runControllers(s.config.defaultVolumeSnapshotLocations); err != nil {
 		return err
