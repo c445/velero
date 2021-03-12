@@ -44,7 +44,8 @@ func NewCommand(f client.Factory) *cobra.Command {
 				//RegisterBackupItemAction("velero.io/crd-remap-version", newRemapCRDVersionAction(f)).
 				RegisterRestoreItemAction("velero.io/job", newJobRestoreItemAction).
 				RegisterRestoreItemAction("velero.io/pod", newPodRestoreItemAction).
-				RegisterRestoreItemAction("velero.io/restic", newResticRestoreItemAction(f)).
+				// TODO(freyjo): Find a better way than simply commenting this out.
+				//RegisterRestoreItemAction("velero.io/restic", newResticRestoreItemAction(f)).
 				RegisterRestoreItemAction("velero.io/init-restore-hook", newInitRestoreHookPodAction).
 				RegisterRestoreItemAction("velero.io/service", newServiceRestoreItemAction).
 				RegisterRestoreItemAction("velero.io/service-account", newServiceAccountRestoreItemAction).
