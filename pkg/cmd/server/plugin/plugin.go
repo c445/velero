@@ -46,7 +46,8 @@ func NewCommand(f client.Factory) *cobra.Command {
 				RegisterRestoreItemAction("velero.io/pod", newPodRestoreItemAction).
 				// TODO(freyjo): Find a better way than simply commenting this out.
 				//RegisterRestoreItemAction("velero.io/restic", newResticRestoreItemAction(f)).
-				RegisterRestoreItemAction("velero.io/init-restore-hook", newInitRestoreHookPodAction).
+				// TODO(freyjo): Find a better way than simply commenting this out.
+				//RegisterRestoreItemAction("velero.io/init-restore-hook", newInitRestoreHookPodAction).
 				RegisterRestoreItemAction("velero.io/service", newServiceRestoreItemAction).
 				RegisterRestoreItemAction("velero.io/service-account", newServiceAccountRestoreItemAction).
 				RegisterRestoreItemAction("velero.io/add-pvc-from-pod", newAddPVCFromPodRestoreItemAction).

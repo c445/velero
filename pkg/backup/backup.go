@@ -224,10 +224,6 @@ func (kb *kubernetesBackupper) Backup(log logrus.FieldLogger, backupRequest *Req
 	log.Infof("Backing up all pod volumes using restic: %t", *backupRequest.Backup.Spec.DefaultVolumesToRestic)
 
 	var err error
-	backupRequest.ResourceHooks, err = getResourceHooks(backupRequest.Spec.Hooks.Resources, kb.discoveryHelper)
-	if err != nil {
-		return err
-	}
 
 	backupRequest.ResolvedActions, err = resolveActions(actions, kb.discoveryHelper)
 	if err != nil {
@@ -291,9 +287,6 @@ func (kb *kubernetesBackupper) Backup(log logrus.FieldLogger, backupRequest *Req
 		resticBackupper:         resticBackupper,
 		resticSnapshotTracker:   newPVCSnapshotTracker(),
 		volumeSnapshotterGetter: volumeSnapshotterGetter,
-		itemHookHandler: &hook.DefaultItemHookHandler{
-			PodCommandExecutor: kb.podCommandExecutor,
-		},
 	}
 
 	// helper struct to send current progress between the main

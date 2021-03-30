@@ -217,18 +217,6 @@ func (kr *kubernetesRestorer) Restore(
 		}
 	}
 
-	resourceRestoreHooks, err := hook.GetRestoreHooksFromSpec(&req.Restore.Spec.Hooks)
-	if err != nil {
-		return Result{}, Result{Velero: []string{err.Error()}}
-	}
-	hooksCtx, hooksCancelFunc := go_context.WithCancel(go_context.Background())
-	waitExecHookHandler := &hook.DefaultWaitExecHookHandler{
-		PodCommandExecutor: kr.podCommandExecutor,
-		ListWatchFactory: &hook.DefaultListWatchFactory{
-			PodsGetter: kr.podGetter,
-		},
-	}
-
 	pvRestorer := &pvRestorer{
 		logger:                  req.Log,
 		backup:                  req.Backup,
@@ -266,11 +254,7 @@ func (kr *kubernetesRestorer) Restore(
 		pvRenamer:                  kr.pvRenamer,
 		discoveryHelper:            kr.discoveryHelper,
 		resourcePriorities:         kr.resourcePriorities,
-		resourceRestoreHooks:       resourceRestoreHooks,
 		hooksErrs:                  make(chan error),
-		waitExecHookHandler:        waitExecHookHandler,
-		hooksContext:               hooksCtx,
-		hooksCancelFunc:            hooksCancelFunc,
 		restoreClient:              kr.restoreClient,
 	}
 
@@ -1390,13 +1374,15 @@ func (ctx *restoreContext) waitExec(createdObj *unstructured.Unstructured) {
 			return
 		}
 
-		if errs := ctx.waitExecHookHandler.HandleHooks(ctx.hooksContext, ctx.log, pod, execHooksByContainer); len(errs) > 0 {
-			ctx.log.WithError(kubeerrs.NewAggregate(errs)).Error("unable to successfully execute post-restore hooks")
-			ctx.hooksCancelFunc()
+		if ctx.waitExecHookHandler != nil {
+			if errs := ctx.waitExecHookHandler.HandleHooks(ctx.hooksContext, ctx.log, pod, execHooksByContainer); len(errs) > 0 {
+				ctx.log.WithError(kubeerrs.NewAggregate(errs)).Error("unable to successfully execute post-restore hooks")
+				ctx.hooksCancelFunc()
 
-			for _, err := range errs {
-				// Errors are already logged in the HandleHooks method.
-				ctx.hooksErrs <- err
+				for _, err := range errs {
+					// Errors are already logged in the HandleHooks method.
+					ctx.hooksErrs <- err
+				}
 			}
 		}
 	}()

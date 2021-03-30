@@ -121,8 +121,10 @@ func (ib *itemBackupper) backupItem(logger logrus.FieldLogger, obj runtime.Unstr
 	log.Info("Backing up item")
 
 	log.Debug("Executing pre hooks")
-	if err := ib.itemHookHandler.HandleHooks(log, groupResource, obj, ib.backupRequest.ResourceHooks, hook.PhasePre); err != nil {
-		return false, err
+	if ib.itemHookHandler != nil {
+		if err := ib.itemHookHandler.HandleHooks(log, groupResource, obj, ib.backupRequest.ResourceHooks, hook.PhasePre); err != nil {
+			return false, err
+		}
 	}
 
 	var (
@@ -173,8 +175,10 @@ func (ib *itemBackupper) backupItem(logger logrus.FieldLogger, obj runtime.Unstr
 
 		// if there was an error running actions, execute post hooks and return
 		log.Debug("Executing post hooks")
-		if err := ib.itemHookHandler.HandleHooks(log, groupResource, obj, ib.backupRequest.ResourceHooks, hook.PhasePost); err != nil {
-			backupErrs = append(backupErrs, err)
+		if ib.itemHookHandler != nil {
+			if err := ib.itemHookHandler.HandleHooks(log, groupResource, obj, ib.backupRequest.ResourceHooks, hook.PhasePost); err != nil {
+				backupErrs = append(backupErrs, err)
+			}
 		}
 
 		return false, kubeerrs.NewAggregate(backupErrs)
@@ -203,8 +207,10 @@ func (ib *itemBackupper) backupItem(logger logrus.FieldLogger, obj runtime.Unstr
 	}
 
 	log.Debug("Executing post hooks")
-	if err := ib.itemHookHandler.HandleHooks(log, groupResource, obj, ib.backupRequest.ResourceHooks, hook.PhasePost); err != nil {
-		backupErrs = append(backupErrs, err)
+	if ib.itemHookHandler != nil {
+		if err := ib.itemHookHandler.HandleHooks(log, groupResource, obj, ib.backupRequest.ResourceHooks, hook.PhasePost); err != nil {
+			backupErrs = append(backupErrs, err)
+		}
 	}
 
 	if len(backupErrs) != 0 {
