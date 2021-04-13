@@ -28,7 +28,7 @@ import (
 	"sync"
 	"time"
 
-	uuid "github.com/gofrs/uuid"
+	"github.com/gofrs/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
@@ -45,6 +45,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
+	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/velero/internal/hook"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
@@ -82,6 +83,7 @@ type Request struct {
 	*velerov1api.Restore
 
 	Log              logrus.FieldLogger
+	Location         *velerov1api.BackupStorageLocation
 	Backup           *velerov1api.Backup
 	PodVolumeBackups []*velerov1api.PodVolumeBackup
 	VolumeSnapshots  []*volume.Snapshot
@@ -101,6 +103,8 @@ type Restorer interface {
 // kubernetesRestorer implements Restorer for restoring into a Kubernetes cluster.
 type kubernetesRestorer struct {
 	restoreClient              velerov1client.RestoresGetter
+	client                     kbclient.Client
+	lock                       sync.RWMutex
 	discoveryHelper            discovery.Helper
 	dynamicFactory             client.DynamicFactory
 	namespaceClient            corev1.NamespaceInterface
@@ -118,10 +122,8 @@ type kubernetesRestorer struct {
 // NewKubernetesRestorer creates a new kubernetesRestorer.
 func NewKubernetesRestorer(
 	restoreClient velerov1client.RestoresGetter,
-	discoveryHelper discovery.Helper,
-	dynamicFactory client.DynamicFactory,
+	client kbclient.Client,
 	resourcePriorities []string,
-	namespaceClient corev1.NamespaceInterface,
 	resticRestorerFactory restic.RestorerFactory,
 	resticTimeout time.Duration,
 	resourceTerminatingTimeout time.Duration,
@@ -131,9 +133,7 @@ func NewKubernetesRestorer(
 ) (Restorer, error) {
 	return &kubernetesRestorer{
 		restoreClient:              restoreClient,
-		discoveryHelper:            discoveryHelper,
-		dynamicFactory:             dynamicFactory,
-		namespaceClient:            namespaceClient,
+		client:                     client,
 		resticRestorerFactory:      resticRestorerFactory,
 		resticTimeout:              resticTimeout,
 		resourceTerminatingTimeout: resourceTerminatingTimeout,
@@ -162,6 +162,25 @@ func (kr *kubernetesRestorer) Restore(
 	snapshotLocationLister listers.VolumeSnapshotLocationLister,
 	volumeSnapshotterGetter VolumeSnapshotterGetter,
 ) (Result, Result) {
+	// NOTE(freyjo): This requires that the BackupStorageLocation must always be named exactly as the target cluster.
+	clusterName := req.Location.Name
+	clientSet, dynamicClient, err := kube.NewClusterClients(go_context.Background(), kr.client, kbclient.ObjectKey{
+		Namespace: clusterName,
+		Name:      clusterName,
+	})
+	if err != nil {
+		return Result{}, Result{Velero: []string{err.Error()}}
+	}
+	discoveryHelper, err := discovery.NewHelper(clientSet, kr.logger)
+	if err != nil {
+		return Result{}, Result{Velero: []string{err.Error()}}
+	}
+	// TODO(freyjo): Do we need this mutex? It looks like the write here always happens before the subsequent reads.
+	kr.lock.Lock()
+	kr.discoveryHelper = discoveryHelper
+	kr.dynamicFactory = client.NewDynamicFactory(dynamicClient)
+	kr.namespaceClient = clientSet.CoreV1().Namespaces()
+	kr.lock.Unlock()
 	// metav1.LabelSelectorAsSelector converts a nil LabelSelector to a
 	// Nothing Selector, i.e. a selector that matches nothing. We want
 	// a selector that matches everything. This can be accomplished by
