@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
@@ -51,8 +52,6 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/util/collections"
 	kubeutil "github.com/vmware-tanzu/velero/pkg/util/kube"
 	"github.com/vmware-tanzu/velero/pkg/util/logging"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // nonRestorableResources is an exclusion list  for the restoration process. Any resources
@@ -475,11 +474,13 @@ func (c *restoreController) runValidatedRestore(restore *api.Restore, info backu
 	restoreReq := pkgrestore.Request{
 		Log:              restoreLog,
 		Restore:          restore,
+		Location:         info.location,
 		Backup:           info.backup,
 		PodVolumeBackups: podVolumeBackups,
 		VolumeSnapshots:  volumeSnapshots,
 		BackupReader:     backupFile,
 	}
+
 	restoreWarnings, restoreErrors := c.restorer.Restore(restoreReq, actions, c.snapshotLocationLister, pluginManager)
 	restoreLog.Info("restore completed")
 

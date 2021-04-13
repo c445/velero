@@ -26,6 +26,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -37,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	kubeerrs "k8s.io/apimachinery/pkg/util/errors"
+	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/velero/internal/hook"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
@@ -48,6 +50,7 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/podexec"
 	"github.com/vmware-tanzu/velero/pkg/restic"
 	"github.com/vmware-tanzu/velero/pkg/util/collections"
+	"github.com/vmware-tanzu/velero/pkg/util/kube"
 )
 
 // BackupVersion is the current backup major version for Velero.
@@ -67,6 +70,8 @@ type Backupper interface {
 // kubernetesBackupper implements Backupper.
 type kubernetesBackupper struct {
 	backupClient           velerov1client.BackupsGetter
+	client                 kbclient.Client
+	lock                   sync.RWMutex
 	dynamicFactory         client.DynamicFactory
 	discoveryHelper        discovery.Helper
 	podCommandExecutor     podexec.PodCommandExecutor
@@ -100,8 +105,7 @@ func cohabitatingResources() map[string]*cohabitatingResource {
 // NewKubernetesBackupper creates a new kubernetesBackupper.
 func NewKubernetesBackupper(
 	backupClient velerov1client.BackupsGetter,
-	discoveryHelper discovery.Helper,
-	dynamicFactory client.DynamicFactory,
+	client kbclient.Client,
 	podCommandExecutor podexec.PodCommandExecutor,
 	resticBackupperFactory restic.BackupperFactory,
 	resticTimeout time.Duration,
@@ -109,8 +113,7 @@ func NewKubernetesBackupper(
 ) (Backupper, error) {
 	return &kubernetesBackupper{
 		backupClient:           backupClient,
-		discoveryHelper:        discoveryHelper,
-		dynamicFactory:         dynamicFactory,
+		client:                 client,
 		podCommandExecutor:     podCommandExecutor,
 		resticBackupperFactory: resticBackupperFactory,
 		resticTimeout:          resticTimeout,
@@ -203,6 +206,25 @@ type VolumeSnapshotterGetter interface {
 // back up individual resources that don't prevent the backup from continuing to be processed) are logged
 // to the backup log.
 func (kb *kubernetesBackupper) Backup(log logrus.FieldLogger, backupRequest *Request, backupFile io.Writer, actions []velero.BackupItemAction, volumeSnapshotterGetter VolumeSnapshotterGetter) error {
+	// NOTE(freyjo): This requires that the BackupStorageLocation must always be named exactly as the target cluster.
+	clusterName := backupRequest.StorageLocation.Name
+	clientSet, dynamicClient, err := kube.NewClusterClients(context.Background(), kb.client, kbclient.ObjectKey{
+		Namespace: backupRequest.Namespace,
+		Name:      clusterName,
+	})
+	if err != nil {
+		return err
+	}
+	discoveryHelper, err := discovery.NewHelper(clientSet, log)
+	if err != nil {
+		return err
+	}
+	// TODO(freyjo): Do we need this mutex? It looks like the write here always happens before the subsequent reads.
+	kb.lock.Lock()
+	kb.discoveryHelper = discoveryHelper
+	kb.dynamicFactory = client.NewDynamicFactory(dynamicClient)
+	kb.lock.Unlock()
+
 	gzippedData := gzip.NewWriter(backupFile)
 	defer gzippedData.Close()
 
@@ -222,8 +244,6 @@ func (kb *kubernetesBackupper) Backup(log logrus.FieldLogger, backupRequest *Req
 	log.Infof("Including resources: %s", backupRequest.ResourceIncludesExcludes.IncludesString())
 	log.Infof("Excluding resources: %s", backupRequest.ResourceIncludesExcludes.ExcludesString())
 	log.Infof("Backing up all pod volumes using restic: %t", *backupRequest.Backup.Spec.DefaultVolumesToRestic)
-
-	var err error
 
 	backupRequest.ResolvedActions, err = resolveActions(actions, kb.discoveryHelper)
 	if err != nil {
