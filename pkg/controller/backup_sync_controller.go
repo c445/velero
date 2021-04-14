@@ -217,7 +217,6 @@ func (c *backupSyncController) run() {
 				continue
 			}
 
-			backup.Namespace = c.namespace
 			backup.ResourceVersion = ""
 
 			// update the StorageLocation field and label since the name of the location
