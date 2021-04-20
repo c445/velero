@@ -26,7 +26,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -71,9 +70,6 @@ type Backupper interface {
 type kubernetesBackupper struct {
 	backupClient           velerov1client.BackupsGetter
 	client                 kbclient.Client
-	lock                   sync.RWMutex
-	dynamicFactory         client.DynamicFactory
-	discoveryHelper        discovery.Helper
 	podCommandExecutor     podexec.PodCommandExecutor
 	resticBackupperFactory restic.BackupperFactory
 	resticTimeout          time.Duration
@@ -219,11 +215,8 @@ func (kb *kubernetesBackupper) Backup(log logrus.FieldLogger, backupRequest *Req
 	if err != nil {
 		return err
 	}
-	// TODO(freyjo): Do we need this mutex? It looks like the write here always happens before the subsequent reads.
-	kb.lock.Lock()
-	kb.discoveryHelper = discoveryHelper
-	kb.dynamicFactory = client.NewDynamicFactory(dynamicClient)
-	kb.lock.Unlock()
+
+	dynamicFactory := client.NewDynamicFactory(dynamicClient)
 
 	gzippedData := gzip.NewWriter(backupFile)
 	defer gzippedData.Close()
@@ -240,12 +233,17 @@ func (kb *kubernetesBackupper) Backup(log logrus.FieldLogger, backupRequest *Req
 	log.Infof("Including namespaces: %s", backupRequest.NamespaceIncludesExcludes.IncludesString())
 	log.Infof("Excluding namespaces: %s", backupRequest.NamespaceIncludesExcludes.ExcludesString())
 
-	backupRequest.ResourceIncludesExcludes = collections.GetResourceIncludesExcludes(kb.discoveryHelper, backupRequest.Spec.IncludedResources, backupRequest.Spec.ExcludedResources)
+	backupRequest.ResourceIncludesExcludes = collections.GetResourceIncludesExcludes(discoveryHelper, backupRequest.Spec.IncludedResources, backupRequest.Spec.ExcludedResources)
 	log.Infof("Including resources: %s", backupRequest.ResourceIncludesExcludes.IncludesString())
 	log.Infof("Excluding resources: %s", backupRequest.ResourceIncludesExcludes.ExcludesString())
 	log.Infof("Backing up all pod volumes using restic: %t", *backupRequest.Backup.Spec.DefaultVolumesToRestic)
 
-	backupRequest.ResolvedActions, err = resolveActions(actions, kb.discoveryHelper)
+	backupRequest.ResourceHooks, err = getResourceHooks(backupRequest.Spec.Hooks.Resources, discoveryHelper)
+	if err != nil {
+		return err
+	}
+
+	backupRequest.ResolvedActions, err = resolveActions(actions, discoveryHelper)
 	if err != nil {
 		return err
 	}
@@ -284,8 +282,8 @@ func (kb *kubernetesBackupper) Backup(log logrus.FieldLogger, backupRequest *Req
 	collector := &itemCollector{
 		log:                   log,
 		backupRequest:         backupRequest,
-		discoveryHelper:       kb.discoveryHelper,
-		dynamicFactory:        kb.dynamicFactory,
+		discoveryHelper:       discoveryHelper,
+		dynamicFactory:        dynamicFactory,
 		cohabitatingResources: cohabitatingResources(),
 		dir:                   tempDir,
 	}
@@ -302,11 +300,14 @@ func (kb *kubernetesBackupper) Backup(log logrus.FieldLogger, backupRequest *Req
 	itemBackupper := &itemBackupper{
 		backupRequest:           backupRequest,
 		tarWriter:               tw,
-		dynamicFactory:          kb.dynamicFactory,
-		discoveryHelper:         kb.discoveryHelper,
+		dynamicFactory:          dynamicFactory,
+		discoveryHelper:         discoveryHelper,
 		resticBackupper:         resticBackupper,
 		resticSnapshotTracker:   newPVCSnapshotTracker(),
 		volumeSnapshotterGetter: volumeSnapshotterGetter,
+		itemHookHandler: &hook.DefaultItemHookHandler{
+			PodCommandExecutor: kb.podCommandExecutor,
+		},
 	}
 
 	// helper struct to send current progress between the main
@@ -415,7 +416,7 @@ func (kb *kubernetesBackupper) Backup(log logrus.FieldLogger, backupRequest *Req
 	// we don't want to back it up, and if it's true it will already be included.
 	if backupRequest.Spec.IncludeClusterResources == nil {
 		for gr := range backedUpGroupResources {
-			kb.backupCRD(log, gr, itemBackupper)
+			kb.backupCRD(log, dynamicFactory, discoveryHelper, gr, itemBackupper)
 		}
 	}
 
@@ -455,11 +456,11 @@ func (kb *kubernetesBackupper) backupItem(log logrus.FieldLogger, gr schema.Grou
 
 // backupCRD checks if the resource is a custom resource, and if so, backs up the custom resource definition
 // associated with it.
-func (kb *kubernetesBackupper) backupCRD(log logrus.FieldLogger, gr schema.GroupResource, itemBackupper *itemBackupper) {
+func (kb *kubernetesBackupper) backupCRD(log logrus.FieldLogger, dynamicFactory client.DynamicFactory, discoveryHelper discovery.Helper, gr schema.GroupResource, itemBackupper *itemBackupper) {
 	crdGroupResource := kuberesource.CustomResourceDefinitions
 
 	log.Debugf("Getting server preferred API version for %s", crdGroupResource)
-	gvr, apiResource, err := kb.discoveryHelper.ResourceFor(crdGroupResource.WithVersion(""))
+	gvr, apiResource, err := discoveryHelper.ResourceFor(crdGroupResource.WithVersion(""))
 	if err != nil {
 		log.WithError(errors.WithStack(err)).Errorf("Error getting resolved resource for %s", crdGroupResource)
 		return
@@ -467,7 +468,7 @@ func (kb *kubernetesBackupper) backupCRD(log logrus.FieldLogger, gr schema.Group
 	log.Debugf("Got server preferred API version %s for %s", gvr.Version, crdGroupResource)
 
 	log.Debugf("Getting dynamic client for %s", gvr.String())
-	crdClient, err := kb.dynamicFactory.ClientForGroupVersionResource(gvr.GroupVersion(), apiResource, "")
+	crdClient, err := dynamicFactory.ClientForGroupVersionResource(gvr.GroupVersion(), apiResource, "")
 	if err != nil {
 		log.WithError(errors.WithStack(err)).Errorf("Error getting dynamic client for %s", crdGroupResource)
 		return
