@@ -104,7 +104,6 @@ type Restorer interface {
 type kubernetesRestorer struct {
 	restoreClient              velerov1client.RestoresGetter
 	client                     kbclient.Client
-	lock                       sync.RWMutex
 	discoveryHelper            discovery.Helper
 	dynamicFactory             client.DynamicFactory
 	namespaceClient            corev1.NamespaceInterface
@@ -162,7 +161,7 @@ func (kr *kubernetesRestorer) Restore(
 	snapshotLocationLister listers.VolumeSnapshotLocationLister,
 	volumeSnapshotterGetter VolumeSnapshotterGetter,
 ) (Result, Result) {
-	// NOTE(freyjo): This requires that the BackupStorageLocation must always be named exactly as the target cluster.
+	// NOTE: This requires that the BackupStorageLocation must always be named exactly as the target cluster.
 	clusterName := req.Location.Name
 	clientSet, dynamicClient, err := kube.NewClusterClients(go_context.Background(), kr.client, kbclient.ObjectKey{
 		Namespace: clusterName,
@@ -175,12 +174,8 @@ func (kr *kubernetesRestorer) Restore(
 	if err != nil {
 		return Result{}, Result{Velero: []string{err.Error()}}
 	}
-	// TODO(freyjo): Do we need this mutex? It looks like the write here always happens before the subsequent reads.
-	kr.lock.Lock()
-	kr.discoveryHelper = discoveryHelper
-	kr.dynamicFactory = client.NewDynamicFactory(dynamicClient)
-	kr.namespaceClient = clientSet.CoreV1().Namespaces()
-	kr.lock.Unlock()
+	dynamicFactory := client.NewDynamicFactory(dynamicClient)
+	namespaceClient := clientSet.CoreV1().Namespaces()
 	// metav1.LabelSelectorAsSelector converts a nil LabelSelector to a
 	// Nothing Selector, i.e. a selector that matches nothing. We want
 	// a selector that matches everything. This can be accomplished by
@@ -197,7 +192,7 @@ func (kr *kubernetesRestorer) Restore(
 
 	// Get resource includes-excludes.
 	resourceIncludesExcludes := collections.GetResourceIncludesExcludes(
-		kr.discoveryHelper,
+		discoveryHelper,
 		req.Restore.Spec.IncludedResources,
 		req.Restore.Spec.ExcludedResources,
 	)
@@ -207,7 +202,7 @@ func (kr *kubernetesRestorer) Restore(
 		Includes(req.Restore.Spec.IncludedNamespaces...).
 		Excludes(req.Restore.Spec.ExcludedNamespaces...)
 
-	resolvedActions, err := resolveActions(actions, kr.discoveryHelper)
+	resolvedActions, err := resolveActions(actions, discoveryHelper)
 	if err != nil {
 		return Result{}, Result{Velero: []string{err.Error()}}
 	}
@@ -236,6 +231,20 @@ func (kr *kubernetesRestorer) Restore(
 		}
 	}
 
+	// Because we don't use hooks.
+	//
+	//resourceRestoreHooks, err := hook.GetRestoreHooksFromSpec(&req.Restore.Spec.Hooks)
+	//if err != nil {
+	//	return Result{}, Result{Velero: []string{err.Error()}}
+	//}
+	//hooksCtx, hooksCancelFunc := go_context.WithCancel(go_context.Background())
+	//waitExecHookHandler := &hook.DefaultWaitExecHookHandler{
+	//	PodCommandExecutor: kr.podCommandExecutor,
+	//	ListWatchFactory: &hook.DefaultListWatchFactory{
+	//		PodsGetter: kr.podGetter,
+	//	},
+	//}
+
 	pvRestorer := &pvRestorer{
 		logger:                  req.Log,
 		backup:                  req.Backup,
@@ -255,9 +264,9 @@ func (kr *kubernetesRestorer) Restore(
 		chosenGrpVersToRestore:     make(map[string]ChosenGroupVersion),
 		selector:                   selector,
 		log:                        req.Log,
-		dynamicFactory:             kr.dynamicFactory,
+		dynamicFactory:             dynamicFactory,
 		fileSystem:                 kr.fileSystem,
-		namespaceClient:            kr.namespaceClient,
+		namespaceClient:            namespaceClient,
 		actions:                    resolvedActions,
 		volumeSnapshotterGetter:    volumeSnapshotterGetter,
 		resticRestorer:             resticRestorer,
@@ -271,10 +280,16 @@ func (kr *kubernetesRestorer) Restore(
 		restoredItems:              make(map[velero.ResourceIdentifier]struct{}),
 		renamedPVs:                 make(map[string]string),
 		pvRenamer:                  kr.pvRenamer,
-		discoveryHelper:            kr.discoveryHelper,
+		discoveryHelper:            discoveryHelper,
 		resourcePriorities:         kr.resourcePriorities,
-		hooksErrs:                  make(chan error),
-		restoreClient:              kr.restoreClient,
+		// Because we don't use hooks.
+		//resourceRestoreHooks:       resourceRestoreHooks,
+		hooksErrs: make(chan error),
+		// Because we don't use hooks.
+		//waitExecHookHandler: waitExecHookHandler,
+		//hooksContext:        hooksCtx,
+		//hooksCancelFunc:     hooksCancelFunc,
+		restoreClient: kr.restoreClient,
 	}
 
 	return restoreCtx.execute()

@@ -40,13 +40,16 @@ func NewCommand(f client.Factory) *cobra.Command {
 				RegisterBackupItemAction("velero.io/pv", newPVBackupItemAction).
 				RegisterBackupItemAction("velero.io/pod", newPodBackupItemAction).
 				RegisterBackupItemAction("velero.io/service-account", newServiceAccountBackupItemAction(f)).
-				// TODO(freyjo): Find a better way than simply commenting this out.
+				// We disable the crd-remap-version plugin because otherwise CRDs with version v1beta1 won't get backed
+				// up properly.
 				//RegisterBackupItemAction("velero.io/crd-remap-version", newRemapCRDVersionAction(f)).
 				RegisterRestoreItemAction("velero.io/job", newJobRestoreItemAction).
 				RegisterRestoreItemAction("velero.io/pod", newPodRestoreItemAction).
-				// TODO(freyjo): Find a better way than simply commenting this out.
+				// We don't want to leverage the restic features for our use case (disaster recovery without restore of
+				// disk content). Disabling the plugin is not sufficient and also required changes in other code parts.
 				//RegisterRestoreItemAction("velero.io/restic", newResticRestoreItemAction(f)).
-				// TODO(freyjo): Find a better way than simply commenting this out.
+				// We disable all hook functionality because hooks can block our backup and restore process.
+				// Disabling the plugin is not sufficient and also required changes in other code parts.
 				//RegisterRestoreItemAction("velero.io/init-restore-hook", newInitRestoreHookPodAction).
 				RegisterRestoreItemAction("velero.io/service", newServiceRestoreItemAction).
 				RegisterRestoreItemAction("velero.io/service-account", newServiceAccountRestoreItemAction).

@@ -308,14 +308,17 @@ func newServer(f client.Factory, config serverConfig, logger *logrus.Logger) (*s
 	}
 
 	s := &server{
-		namespace:                           f.Namespace(),
-		metricsAddress:                      config.metricsAddress,
-		kubeClientConfig:                    clientConfig,
-		kubeClient:                          kubeClient,
-		veleroClient:                        veleroClient,
-		discoveryClient:                     veleroClient.Discovery(),
-		dynamicClient:                       dynamicClient,
-		sharedInformerFactory:               informers.NewSharedInformerFactoryWithOptions(veleroClient, 0),
+		namespace:        f.Namespace(),
+		metricsAddress:   config.metricsAddress,
+		kubeClientConfig: clientConfig,
+		kubeClient:       kubeClient,
+		veleroClient:     veleroClient,
+		discoveryClient:  veleroClient.Discovery(),
+		dynamicClient:    dynamicClient,
+		// We setup an informer with an empty namespace so that we register changes of resources in any namespace.
+		// This is needed because CRs like Backup, Restore, Schedule etc. reside in other namespaces than the velero
+		// server itself.
+		sharedInformerFactory:               informers.NewSharedInformerFactoryWithOptions(veleroClient, 0, informers.WithNamespace("")),
 		csiSnapshotterSharedInformerFactory: NewCSIInformerFactoryWrapper(csiSnapClient),
 		csiSnapshotClient:                   csiSnapClient,
 		ctx:                                 ctx,
@@ -338,15 +341,11 @@ func (s *server) run() error {
 		go s.runProfiler()
 	}
 
-	// TODO(freyjo): Adjust comment as soon as we adjust Velero so that the server process and the CRs
-	//  are allowed to reside in different namespaces.
 	// Since s.namespace, which specifies where backups/restores/schedules/etc. should live,
 	// *could* be different from the namespace where the Velero server pod runs, check to make
 	// sure it exists, and fail fast if it doesn't.
-	if s.namespace != "" {
-		if err := s.namespaceExists(s.namespace); err != nil {
-			return err
-		}
+	if err := s.namespaceExists(s.namespace); err != nil {
+		return err
 	}
 
 	if err := s.initDiscoveryHelper(); err != nil {
@@ -357,7 +356,7 @@ func (s *server) run() error {
 		return err
 	}
 
-	// TODO(freyjo): Find a better way than simply commenting this out.
+	// We don't need the restic features for our use case.
 	//if err := s.initRestic(); err != nil {
 	//	return err
 	//}
@@ -583,6 +582,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.veleroClient.VeleroV1(),
 			s.sharedInformerFactory.Velero().V1().Backups().Lister(),
 			s.config.backupSyncPeriod,
+			// Empty namespace so that the controller is able to retrieve Backups from any namespace.
 			"",
 			s.csiSnapshotClient,
 			s.kubeClient,
@@ -604,7 +604,9 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 		backupper, err := backup.NewKubernetesBackupper(
 			s.veleroClient.VeleroV1(),
 			s.mgr.GetClient(),
+			// Because we don't want to run any hook commands.
 			nil,
+			// Because we don't want any restic features for our use case.
 			nil,
 			0,
 			false,
@@ -641,6 +643,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 	scheduleControllerRunInfo := func() controllerRunInfo {
 		scheduleController := controller.NewScheduleController(
+			// Empty namespace so that the controller is able to retrieve Schedules from any namespace.
 			"",
 			s.veleroClient.VeleroV1(),
 			s.veleroClient.VeleroV1(),
@@ -703,16 +706,19 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.veleroClient.VeleroV1(),
 			s.mgr.GetClient(),
 			s.config.restoreResourcePriorities,
+			// Because we don't want any restic features for our use case.
 			nil,
 			s.config.podVolumeOperationTimeout,
 			s.config.resourceTerminatingTimeout,
 			s.logger,
+			// Because we don't want to run any hook commands.
 			nil,
-			nil,
+			s.kubeClient.CoreV1().RESTClient(),
 		)
 		cmd.CheckError(err)
 
 		restoreController := controller.NewRestoreController(
+			// Empty namespace so that the controller is able to retrieve Restores from any namespace.
 			"",
 			s.sharedInformerFactory.Velero().V1().Restores(),
 			s.veleroClient.VeleroV1(),

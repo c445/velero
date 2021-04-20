@@ -585,7 +585,6 @@ func (c *backupController) runBackup(backup *pkgbackup.Request) error {
 	}
 
 	var fatalErrs []error
-
 	if err := c.backupper.Backup(backupLog, backup, backupFile, actions, pluginManager); err != nil {
 		fatalErrs = append(fatalErrs, err)
 	}

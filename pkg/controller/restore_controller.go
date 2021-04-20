@@ -323,7 +323,7 @@ func (c *restoreController) validateAndComplete(restore *api.Restore, pluginMana
 		selector := labels.SelectorFromSet(labels.Set(map[string]string{
 			velerov1api.ScheduleNameLabel: restore.Spec.ScheduleName,
 		}))
-		// NOTE(freyjo): This assumes that Backups and Restores to always reside in the same namespace.
+		// NOTE: This assumes that Backups and Restores to always reside in the same namespace.
 		backups, err := c.backupLister.Backups(restore.Namespace).List(selector)
 		if err != nil {
 			restore.Status.ValidationErrors = append(restore.Status.ValidationErrors, "Unable to list backups for schedule")
@@ -341,6 +341,7 @@ func (c *restoreController) validateAndComplete(restore *api.Restore, pluginMana
 		}
 	}
 
+	// NOTE: This assumes that Backups and Restores to always reside in the same namespace.
 	info, err := c.fetchBackupInfo(restore.Spec.BackupName, restore.Namespace, pluginManager)
 	if err != nil {
 		restore.Status.ValidationErrors = append(restore.Status.ValidationErrors, fmt.Sprintf("Error retrieving backup: %v", err))
@@ -396,10 +397,8 @@ func mostRecentCompletedBackup(backups []*api.Backup) *api.Backup {
 
 // fetchBackupInfo checks the backup lister for a backup that matches the given name. If it doesn't
 // find it, it returns an error.
-// NOTE(freyjo): We adjust fetchBackupInfo to also accept a namespace explicitly. This assumes that a Restore resides
-//  in the same namespace as its corresponding Backup and BackupStorageLocation.
-//  Another idea might be to rather accept a types.NamespacedName instead of a backupName string. This would probably
-//  need adjustments in the Restore CR and CLI command to also include a reference to the namespace of the Backup.
+// NOTE: We adjust fetchBackupInfo to also accept a namespace explicitly, which will be the namespace of the
+// found Restore. As a corollary, this means that Restores and corresponding Backups must reside in the same namespace.
 func (c *restoreController) fetchBackupInfo(backupName, namespace string, pluginManager clientmgmt.Manager) (backupInfo, error) {
 	backup, err := c.backupLister.Backups(namespace).Get(backupName)
 	if err != nil {
