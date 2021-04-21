@@ -28,7 +28,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofrs/uuid"
+	uuid "github.com/gofrs/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
@@ -104,8 +104,6 @@ type Restorer interface {
 type kubernetesRestorer struct {
 	restoreClient              velerov1client.RestoresGetter
 	client                     kbclient.Client
-	discoveryHelper            discovery.Helper
-	dynamicFactory             client.DynamicFactory
 	namespaceClient            corev1.NamespaceInterface
 	resticRestorerFactory      restic.RestorerFactory
 	resticTimeout              time.Duration
@@ -121,8 +119,11 @@ type kubernetesRestorer struct {
 // NewKubernetesRestorer creates a new kubernetesRestorer.
 func NewKubernetesRestorer(
 	restoreClient velerov1client.RestoresGetter,
+	discoveryHelper discovery.Helper,
+	dynamicFactory client.DynamicFactory,
 	client kbclient.Client,
 	resourcePriorities []string,
+	namespaceClient corev1.NamespaceInterface,
 	resticRestorerFactory restic.RestorerFactory,
 	resticTimeout time.Duration,
 	resourceTerminatingTimeout time.Duration,
@@ -231,19 +232,17 @@ func (kr *kubernetesRestorer) Restore(
 		}
 	}
 
-	// Because we don't use hooks.
-	//
-	//resourceRestoreHooks, err := hook.GetRestoreHooksFromSpec(&req.Restore.Spec.Hooks)
-	//if err != nil {
-	//	return Result{}, Result{Velero: []string{err.Error()}}
-	//}
-	//hooksCtx, hooksCancelFunc := go_context.WithCancel(go_context.Background())
-	//waitExecHookHandler := &hook.DefaultWaitExecHookHandler{
-	//	PodCommandExecutor: kr.podCommandExecutor,
-	//	ListWatchFactory: &hook.DefaultListWatchFactory{
-	//		PodsGetter: kr.podGetter,
-	//	},
-	//}
+	resourceRestoreHooks, err := hook.GetRestoreHooksFromSpec(&req.Restore.Spec.Hooks)
+	if err != nil {
+		return Result{}, Result{Velero: []string{err.Error()}}
+	}
+	hooksCtx, hooksCancelFunc := go_context.WithCancel(go_context.Background())
+	waitExecHookHandler := &hook.DefaultWaitExecHookHandler{
+		PodCommandExecutor: kr.podCommandExecutor,
+		ListWatchFactory: &hook.DefaultListWatchFactory{
+			PodsGetter: kr.podGetter,
+		},
+	}
 
 	pvRestorer := &pvRestorer{
 		logger:                  req.Log,
@@ -282,14 +281,12 @@ func (kr *kubernetesRestorer) Restore(
 		pvRenamer:                  kr.pvRenamer,
 		discoveryHelper:            discoveryHelper,
 		resourcePriorities:         kr.resourcePriorities,
-		// Because we don't use hooks.
-		//resourceRestoreHooks:       resourceRestoreHooks,
-		hooksErrs: make(chan error),
-		// Because we don't use hooks.
-		//waitExecHookHandler: waitExecHookHandler,
-		//hooksContext:        hooksCtx,
-		//hooksCancelFunc:     hooksCancelFunc,
-		restoreClient: kr.restoreClient,
+		resourceRestoreHooks:       resourceRestoreHooks,
+		hooksErrs:                  make(chan error),
+		waitExecHookHandler:        waitExecHookHandler,
+		hooksContext:               hooksCtx,
+		hooksCancelFunc:            hooksCancelFunc,
+		restoreClient:              kr.restoreClient,
 	}
 
 	return restoreCtx.execute()
@@ -608,17 +605,21 @@ func (ctx *restoreContext) execute() (Result, Result) {
 	}
 	ctx.log.Info("Done waiting for all restic restores to complete")
 
+	// Because we don't want to use hooks.
+	//
 	// Wait for all post-restore exec hooks with same logic as restic wait above.
-	go func() {
-		ctx.log.Info("Waiting for all post-restore-exec hooks to complete")
+	//go func() {
+	//	ctx.log.Info("Waiting for all post-restore-exec hooks to complete")
 
-		ctx.hooksWaitGroup.Wait()
-		close(ctx.hooksErrs)
-	}()
-	for err := range ctx.hooksErrs {
-		errs.Velero = append(errs.Velero, err.Error())
-	}
-	ctx.log.Info("Done waiting for all post-restore exec hooks to complete")
+	//	ctx.hooksWaitGroup.Wait()
+	//	close(ctx.hooksErrs)
+	//}()
+	// Because we don't want to use hooks.
+	//
+	//for err := range ctx.hooksErrs {
+	//	errs.Velero = append(errs.Velero, err.Error())
+	//}
+	//ctx.log.Info("Done waiting for all post-restore exec hooks to complete")
 
 	return warnings, errs
 }
@@ -1394,31 +1395,33 @@ func (ctx *restoreContext) waitExec(createdObj *unstructured.Unstructured) {
 		pod := new(v1.Pod)
 		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(createdObj.UnstructuredContent(), &pod); err != nil {
 			ctx.log.WithError(err).Error("error converting unstructured pod")
-			ctx.hooksErrs <- err
+			// Because we don't want to use hooks.
+			//
+			//ctx.hooksErrs <- err
 			return
 		}
-		execHooksByContainer, err := hook.GroupRestoreExecHooks(
-			ctx.resourceRestoreHooks,
-			pod,
-			ctx.log,
-		)
-		if err != nil {
-			ctx.log.WithError(err).Errorf("error getting exec hooks for pod %s/%s", pod.Namespace, pod.Name)
-			ctx.hooksErrs <- err
-			return
-		}
+		// Because we don't want to use hooks.
+		//
+		//execHooksByContainer, err := hook.GroupRestoreExecHooks(
+		//	ctx.resourceRestoreHooks,
+		//	pod,
+		//	ctx.log,
+		//)
+		//if err != nil {
+		//	ctx.log.WithError(err).Errorf("error getting exec hooks for pod %s/%s", pod.Namespace, pod.Name)
+		//	ctx.hooksErrs <- err
+		//	return
+		//}
 
-		if ctx.waitExecHookHandler != nil {
-			if errs := ctx.waitExecHookHandler.HandleHooks(ctx.hooksContext, ctx.log, pod, execHooksByContainer); len(errs) > 0 {
-				ctx.log.WithError(kubeerrs.NewAggregate(errs)).Error("unable to successfully execute post-restore hooks")
-				ctx.hooksCancelFunc()
+		//if errs := ctx.waitExecHookHandler.HandleHooks(ctx.hooksContext, ctx.log, pod, execHooksByContainer); len(errs) > 0 {
+		//	ctx.log.WithError(kubeerrs.NewAggregate(errs)).Error("unable to successfully execute post-restore hooks")
+		//	ctx.hooksCancelFunc()
 
-				for _, err := range errs {
-					// Errors are already logged in the HandleHooks method.
-					ctx.hooksErrs <- err
-				}
-			}
-		}
+		//	for _, err := range errs {
+		//		// Errors are already logged in the HandleHooks method.
+		//		ctx.hooksErrs <- err
+		//	}
+		//}
 	}()
 }
 

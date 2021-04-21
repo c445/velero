@@ -37,7 +37,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
@@ -52,6 +51,8 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/util/collections"
 	kubeutil "github.com/vmware-tanzu/velero/pkg/util/kube"
 	"github.com/vmware-tanzu/velero/pkg/util/logging"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // nonRestorableResources is an exclusion list  for the restoration process. Any resources
@@ -323,7 +324,7 @@ func (c *restoreController) validateAndComplete(restore *api.Restore, pluginMana
 		selector := labels.SelectorFromSet(labels.Set(map[string]string{
 			velerov1api.ScheduleNameLabel: restore.Spec.ScheduleName,
 		}))
-		// NOTE: This assumes that Backups and Restores to always reside in the same namespace.
+		// NOTE: This assumes that Backups and Restores always reside in the same namespace.
 		backups, err := c.backupLister.Backups(restore.Namespace).List(selector)
 		if err != nil {
 			restore.Status.ValidationErrors = append(restore.Status.ValidationErrors, "Unable to list backups for schedule")
@@ -341,7 +342,7 @@ func (c *restoreController) validateAndComplete(restore *api.Restore, pluginMana
 		}
 	}
 
-	// NOTE: This assumes that Backups and Restores to always reside in the same namespace.
+	// NOTE: This assumes that Backups and Restores always reside in the same namespace.
 	info, err := c.fetchBackupInfo(restore.Spec.BackupName, restore.Namespace, pluginManager)
 	if err != nil {
 		restore.Status.ValidationErrors = append(restore.Status.ValidationErrors, fmt.Sprintf("Error retrieving backup: %v", err))

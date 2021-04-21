@@ -101,6 +101,8 @@ func cohabitatingResources() map[string]*cohabitatingResource {
 // NewKubernetesBackupper creates a new kubernetesBackupper.
 func NewKubernetesBackupper(
 	backupClient velerov1client.BackupsGetter,
+	discoveryHelper discovery.Helper,
+	dynamicFactory client.DynamicFactory,
 	client kbclient.Client,
 	podCommandExecutor podexec.PodCommandExecutor,
 	resticBackupperFactory restic.BackupperFactory,
