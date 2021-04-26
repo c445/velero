@@ -42,7 +42,7 @@ import (
 // CRD that needs to be backed up as v1beta1.
 type RemapCRDVersionAction struct {
 	logger logrus.FieldLogger
-	// client is a controller-runtime client to dynamically fetch kubeconfig secrets of remote clusters.
+	// client is a controller-runtime client to dynamically fetch target cluster kubeconfig secrets in the management cluster.
 	client client.Client
 }
 
@@ -99,11 +99,13 @@ func (a *RemapCRDVersionAction) Execute(item runtime.Unstructured, backup *v1.Ba
 			Namespace: clusterName,
 			Name:      clusterName,
 		}
+		// a.client is the management cluster client to get kubeconfig secrets.
 		restConfig, err := remote.RESTConfig(context.Background(), a.client, cluster)
 		if err != nil {
 			return nil, nil, err
 		}
 
+		// c is the client that is used to talk to target clusters.
 		c, err := apiextensions.NewForConfig(restConfig)
 		if err != nil {
 			return nil, nil, err
