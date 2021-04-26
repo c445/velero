@@ -19,9 +19,6 @@ package plugin
 import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-
-	apiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-
 	"github.com/vmware-tanzu/velero/pkg/backup"
 	"github.com/vmware-tanzu/velero/pkg/client"
 	velerodiscovery "github.com/vmware-tanzu/velero/pkg/discovery"
@@ -40,9 +37,7 @@ func NewCommand(f client.Factory) *cobra.Command {
 				RegisterBackupItemAction("velero.io/pv", newPVBackupItemAction).
 				RegisterBackupItemAction("velero.io/pod", newPodBackupItemAction).
 				RegisterBackupItemAction("velero.io/service-account", newServiceAccountBackupItemAction(f)).
-				// We disable the crd-remap-version plugin because otherwise CRDs with version v1beta1 won't get backed
-				// up properly.
-				//RegisterBackupItemAction("velero.io/crd-remap-version", newRemapCRDVersionAction(f)).
+				RegisterBackupItemAction("velero.io/crd-remap-version", newRemapCRDVersionAction(f)).
 				RegisterRestoreItemAction("velero.io/job", newJobRestoreItemAction).
 				RegisterRestoreItemAction("velero.io/pod", newPodRestoreItemAction).
 				// We don't want to leverage the restic features for our use case (disaster recovery without restore of
@@ -104,17 +99,14 @@ func newServiceAccountBackupItemAction(f client.Factory) veleroplugin.HandlerIni
 
 func newRemapCRDVersionAction(f client.Factory) veleroplugin.HandlerInitializer {
 	return func(logger logrus.FieldLogger) (interface{}, error) {
-		config, err := f.ClientConfig()
+		// We switch to a KubebuilderClient here because it satisfies the interface of the "main" client, with which we
+		// are able to dynamically obtain the kubeconfig secrets for the target clusters when backing up v1beta1 CRDs.
+		c, err := f.KubebuilderClient()
 		if err != nil {
 			return nil, err
 		}
 
-		client, err := apiextensions.NewForConfig(config)
-		if err != nil {
-			return nil, err
-		}
-
-		return backup.NewRemapCRDVersionAction(logger, client.ApiextensionsV1beta1().CustomResourceDefinitions()), nil
+		return backup.NewRemapCRDVersionAction(logger, c), nil
 	}
 }
 
