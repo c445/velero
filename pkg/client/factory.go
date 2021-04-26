@@ -153,7 +153,7 @@ func (f *factory) KubebuilderClient() (kbclient.Client, error) {
 
 	scheme := runtime.NewScheme()
 	velerov1api.AddToScheme(scheme)
-	// We add v1 to our scheme so that we are also able to retrieve remove cluster kubeconfig secrets with this client.
+	// We add v1 to our scheme so that we are also able to retrieve remote cluster kubeconfig secrets with this client.
 	v1.AddToScheme(scheme)
 	kubebuilderClient, err := kbclient.New(clientConfig, kbclient.Options{
 		Scheme: scheme,
