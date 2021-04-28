@@ -178,10 +178,12 @@ func (ib *itemBackupper) backupItemInternal(logger logrus.FieldLogger, obj runti
 		pvbVolumes []string
 	)
 
-	log.Debug("Executing pre hooks")
-	if err := ib.itemHookHandler.HandleHooks(log, groupResource, obj, ib.backupRequest.ResourceHooks, hook.PhasePre); err != nil {
-		return false, itemFiles, err
-	}
+	// Because we don't want to use hooks.
+	//
+	// log.Debug("Executing pre hooks")
+	// if err := ib.itemHookHandler.HandleHooks(log, groupResource, obj, ib.backupRequest.ResourceHooks, hook.PhasePre); err != nil {
+	// 	return false, itemFiles, err
+	// }
 
 	if groupResource == kuberesource.Pods {
 		// pod needs to be initialized for the unstructured converter
@@ -221,10 +223,10 @@ func (ib *itemBackupper) backupItemInternal(logger logrus.FieldLogger, obj runti
 		backupErrs = append(backupErrs, err)
 
 		// if there was an error running actions, execute post hooks and return
-		log.Debug("Executing post hooks")
-		if err := ib.itemHookHandler.HandleHooks(log, groupResource, obj, ib.backupRequest.ResourceHooks, hook.PhasePost); err != nil {
-			backupErrs = append(backupErrs, err)
-		}
+		// log.Debug("Executing post hooks")
+		// if err := ib.itemHookHandler.HandleHooks(log, groupResource, obj, ib.backupRequest.ResourceHooks, hook.PhasePost); err != nil {
+		// 	backupErrs = append(backupErrs, err)
+		// }
 		return false, itemFiles, kubeerrs.NewAggregate(backupErrs)
 	}
 
@@ -257,10 +259,12 @@ func (ib *itemBackupper) backupItemInternal(logger logrus.FieldLogger, obj runti
 		}
 	}
 
-	log.Debug("Executing post hooks")
-	if err := ib.itemHookHandler.HandleHooks(log, groupResource, obj, ib.backupRequest.ResourceHooks, hook.PhasePost); err != nil {
-		backupErrs = append(backupErrs, err)
-	}
+	// Because we don't want to use hooks.
+	//
+	//log.Debug("Executing post hooks")
+	//if err := ib.itemHookHandler.HandleHooks(log, groupResource, obj, ib.backupRequest.ResourceHooks, hook.PhasePost); err != nil {
+	//	backupErrs = append(backupErrs, err)
+	//}
 
 	if len(backupErrs) != 0 {
 		return false, itemFiles, kubeerrs.NewAggregate(backupErrs)

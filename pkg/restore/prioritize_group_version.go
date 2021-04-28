@@ -231,7 +231,7 @@ func userPriorityConfigMap() (*corev1.ConfigMap, error) {
 			return nil, nil
 		}
 
-		return nil, errors.Wrap(err, "getting enableapigroupversions config map from velero namespace")
+		return nil, errors.Wrapf(err, "getting enableapigroupversions config map from %s namespace", fc.Namespace())
 	}
 
 	return cm, nil

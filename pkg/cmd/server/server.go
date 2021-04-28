@@ -818,7 +818,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	}
 
 	if _, ok := enabledRuntimeControllers[controller.BackupRepo]; ok {
-		if err := controller.NewBackupRepoReconciler(s.namespace, s.logger, s.mgr.GetClient(), s.config.repoMaintenanceFrequency, s.repoManager).SetupWithManager(s.mgr); err != nil {
+		if err := controller.NewBackupRepoReconciler("", s.logger, s.mgr.GetClient(), s.config.repoMaintenanceFrequency, s.repoManager).SetupWithManager(s.mgr); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.BackupRepo)
 		}
 	}
@@ -831,7 +831,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 		backupSyncReconciler := controller.NewBackupSyncReconciler(
 			s.mgr.GetClient(),
-			s.namespace,
+			"",
 			syncPeriod,
 			newPluginManager,
 			backupStoreGetter,
@@ -846,7 +846,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	if _, ok := enabledRuntimeControllers[controller.RestoreOperations]; ok {
 		r := controller.NewRestoreOperationsReconciler(
 			s.logger,
-			s.namespace,
+			"",
 			s.mgr.GetClient(),
 			s.config.itemOperationSyncFrequency,
 			newPluginManager,
@@ -883,8 +883,6 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 	if _, ok := enabledRuntimeControllers[controller.Restore]; ok {
 		restorer, err := restore.NewKubernetesRestorer(
-			s.discoveryHelper,
-			client.NewDynamicFactory(s.dynamicClient),
 			s.config.restoreResourcePriorities,
 			s.kubeClient.CoreV1().Namespaces(),
 			podvolume.NewRestorerFactory(
@@ -910,7 +908,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 		r := controller.NewRestoreReconciler(
 			s.ctx,
-			s.namespace,
+			"",
 			restorer,
 			s.mgr.GetClient(),
 			s.logger,
@@ -928,7 +926,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	}
 
 	if _, ok := enabledRuntimeControllers[controller.Schedule]; ok {
-		if err := controller.NewScheduleReconciler(s.namespace, s.logger, s.mgr.GetClient(), s.metrics).SetupWithManager(s.mgr); err != nil {
+		if err := controller.NewScheduleReconciler("", s.logger, s.mgr.GetClient(), s.metrics).SetupWithManager(s.mgr); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.Schedule)
 		}
 	}

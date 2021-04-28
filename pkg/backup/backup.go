@@ -34,12 +34,11 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	kubeerrs "k8s.io/apimachinery/pkg/util/errors"
+	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/velero/internal/hook"
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/client"
-
-	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/velero/pkg/discovery"
 	"github.com/vmware-tanzu/velero/pkg/itemoperation"
@@ -76,8 +75,6 @@ type Backupper interface {
 // kubernetesBackupper implements Backupper.
 type kubernetesBackupper struct {
 	kbClient                  kbclient.Client
-	dynamicFactory            client.DynamicFactory
-	discoveryHelper           discovery.Helper
 	podCommandExecutor        podexec.PodCommandExecutor
 	podVolumeBackupperFactory podvolume.BackupperFactory
 	podVolumeTimeout          time.Duration
@@ -105,6 +102,7 @@ func NewKubernetesBackupper(
 	kbClient kbclient.Client,
 	discoveryHelper discovery.Helper,
 	dynamicFactory client.DynamicFactory,
+	client kbclient.Client,
 	podCommandExecutor podexec.PodCommandExecutor,
 	podVolumeBackupperFactory podvolume.BackupperFactory,
 	podVolumeTimeout time.Duration,
@@ -114,8 +112,6 @@ func NewKubernetesBackupper(
 ) (Backupper, error) {
 	return &kubernetesBackupper{
 		kbClient:                  kbClient,
-		discoveryHelper:           discoveryHelper,
-		dynamicFactory:            dynamicFactory,
 		podCommandExecutor:        podCommandExecutor,
 		podVolumeBackupperFactory: podVolumeBackupperFactory,
 		podVolumeTimeout:          podVolumeTimeout,
@@ -188,6 +184,23 @@ func (kb *kubernetesBackupper) BackupWithResolvers(log logrus.FieldLogger,
 	backupFile io.Writer,
 	backupItemActionResolver framework.BackupItemActionResolverV2,
 	volumeSnapshotterGetter VolumeSnapshotterGetter) error {
+
+	// NOTE: This requires that the BackupStorageLocation must always be named exactly as the target cluster.
+	clusterName := backupRequest.StorageLocation.Name
+	clientSet, dynamicClient, err := kube.NewClusterClients(context.Background(), kb.kbClient, kbclient.ObjectKey{
+		Namespace: backupRequest.Namespace,
+		Name:      clusterName,
+	})
+	if err != nil {
+		return err
+	}
+	discoveryHelper, err := discovery.NewHelper(clientSet, log)
+	if err != nil {
+		return err
+	}
+
+	dynamicFactory := client.NewDynamicFactory(dynamicClient)
+
 	gzippedData := gzip.NewWriter(backupFile)
 	defer gzippedData.Close()
 
@@ -204,13 +217,13 @@ func (kb *kubernetesBackupper) BackupWithResolvers(log logrus.FieldLogger,
 	log.Infof("Excluding namespaces: %s", backupRequest.NamespaceIncludesExcludes.ExcludesString())
 
 	if collections.UseOldResourceFilters(backupRequest.Spec) {
-		backupRequest.ResourceIncludesExcludes = collections.GetGlobalResourceIncludesExcludes(kb.discoveryHelper, log,
+		backupRequest.ResourceIncludesExcludes = collections.GetGlobalResourceIncludesExcludes(discoveryHelper, log,
 			backupRequest.Spec.IncludedResources,
 			backupRequest.Spec.ExcludedResources,
 			backupRequest.Spec.IncludeClusterResources,
 			*backupRequest.NamespaceIncludesExcludes)
 	} else {
-		backupRequest.ResourceIncludesExcludes = collections.GetScopeResourceIncludesExcludes(kb.discoveryHelper, log,
+		backupRequest.ResourceIncludesExcludes = collections.GetScopeResourceIncludesExcludes(discoveryHelper, log,
 			backupRequest.Spec.IncludedNamespaceScopedResources,
 			backupRequest.Spec.ExcludedNamespaceScopedResources,
 			backupRequest.Spec.IncludedClusterScopedResources,
@@ -221,14 +234,13 @@ func (kb *kubernetesBackupper) BackupWithResolvers(log logrus.FieldLogger,
 
 	log.Infof("Backing up all volumes using pod volume backup: %t", boolptr.IsSetToTrue(backupRequest.Backup.Spec.DefaultVolumesToFsBackup))
 
-	var err error
-	backupRequest.ResourceHooks, err = getResourceHooks(backupRequest.Spec.Hooks.Resources, kb.discoveryHelper)
+	backupRequest.ResourceHooks, err = getResourceHooks(backupRequest.Spec.Hooks.Resources, discoveryHelper)
 	if err != nil {
 		log.WithError(errors.WithStack(err)).Debugf("Error from getResourceHooks")
 		return err
 	}
 
-	backupRequest.ResolvedActions, err = backupItemActionResolver.ResolveActions(kb.discoveryHelper, log)
+	backupRequest.ResolvedActions, err = backupItemActionResolver.ResolveActions(discoveryHelper, log)
 	if err != nil {
 		log.WithError(errors.WithStack(err)).Debugf("Error from backupItemActionResolver.ResolveActions")
 		return err
@@ -269,8 +281,8 @@ func (kb *kubernetesBackupper) BackupWithResolvers(log logrus.FieldLogger,
 	collector := &itemCollector{
 		log:                   log,
 		backupRequest:         backupRequest,
-		discoveryHelper:       kb.discoveryHelper,
-		dynamicFactory:        kb.dynamicFactory,
+		discoveryHelper:       discoveryHelper,
+		dynamicFactory:        dynamicFactory,
 		cohabitatingResources: cohabitatingResources(),
 		dir:                   tempDir,
 		pageSize:              kb.clientPageSize,
@@ -289,9 +301,9 @@ func (kb *kubernetesBackupper) BackupWithResolvers(log logrus.FieldLogger,
 	itemBackupper := &itemBackupper{
 		backupRequest:            backupRequest,
 		tarWriter:                tw,
-		dynamicFactory:           kb.dynamicFactory,
+		dynamicFactory:           dynamicFactory,
 		kbClient:                 kb.kbClient,
-		discoveryHelper:          kb.discoveryHelper,
+		discoveryHelper:          discoveryHelper,
 		podVolumeBackupper:       podVolumeBackupper,
 		podVolumeSnapshotTracker: newPVCSnapshotTracker(),
 		volumeSnapshotterGetter:  volumeSnapshotterGetter,
@@ -407,7 +419,7 @@ func (kb *kubernetesBackupper) BackupWithResolvers(log logrus.FieldLogger,
 	if !backupRequest.ResourceIncludesExcludes.ShouldExclude(kuberesource.CustomResourceDefinitions.String()) &&
 		!backupRequest.ResourceIncludesExcludes.ShouldInclude(kuberesource.CustomResourceDefinitions.String()) {
 		for gr := range backedUpGroupResources {
-			kb.backupCRD(log, gr, itemBackupper)
+			kb.backupCRD(log, dynamicFactory, discoveryHelper, gr, itemBackupper)
 		}
 	}
 
@@ -465,11 +477,11 @@ func (kb *kubernetesBackupper) finalizeItem(log logrus.FieldLogger, gr schema.Gr
 
 // backupCRD checks if the resource is a custom resource, and if so, backs up the custom resource definition
 // associated with it.
-func (kb *kubernetesBackupper) backupCRD(log logrus.FieldLogger, gr schema.GroupResource, itemBackupper *itemBackupper) {
+func (kb *kubernetesBackupper) backupCRD(log logrus.FieldLogger, dynamicFactory client.DynamicFactory, discoveryHelper discovery.Helper, gr schema.GroupResource, itemBackupper *itemBackupper) {
 	crdGroupResource := kuberesource.CustomResourceDefinitions
 
 	log.Debugf("Getting server preferred API version for %s", crdGroupResource)
-	gvr, apiResource, err := kb.discoveryHelper.ResourceFor(crdGroupResource.WithVersion(""))
+	gvr, apiResource, err := discoveryHelper.ResourceFor(crdGroupResource.WithVersion(""))
 	if err != nil {
 		log.WithError(errors.WithStack(err)).Errorf("Error getting resolved resource for %s", crdGroupResource)
 		return
@@ -477,7 +489,7 @@ func (kb *kubernetesBackupper) backupCRD(log logrus.FieldLogger, gr schema.Group
 	log.Debugf("Got server preferred API version %s for %s", gvr.Version, crdGroupResource)
 
 	log.Debugf("Getting dynamic client for %s", gvr.String())
-	crdClient, err := kb.dynamicFactory.ClientForGroupVersionResource(gvr.GroupVersion(), apiResource, "")
+	crdClient, err := dynamicFactory.ClientForGroupVersionResource(gvr.GroupVersion(), apiResource, "")
 	if err != nil {
 		log.WithError(errors.WithStack(err)).Errorf("Error getting dynamic client for %s", crdGroupResource)
 		return
@@ -529,6 +541,22 @@ func (kb *kubernetesBackupper) FinalizeBackup(log logrus.FieldLogger,
 	backupItemActionResolver framework.BackupItemActionResolverV2,
 	asyncBIAOperations []*itemoperation.BackupOperation) error {
 
+	// NOTE: This requires that the BackupStorageLocation must always be named exactly as the target cluster.
+	clusterName := backupRequest.StorageLocation.Name
+	clientSet, dynamicClient, err := kube.NewClusterClients(context.Background(), kb.kbClient, kbclient.ObjectKey{
+		Namespace: backupRequest.Namespace,
+		Name:      clusterName,
+	})
+	if err != nil {
+		return err
+	}
+	discoveryHelper, err := discovery.NewHelper(clientSet, log)
+	if err != nil {
+		return err
+	}
+
+	dynamicFactory := client.NewDynamicFactory(dynamicClient)
+
 	gzw := gzip.NewWriter(outBackupFile)
 	defer gzw.Close()
 	tw := tar.NewWriter(gzw)
@@ -542,7 +570,7 @@ func (kb *kubernetesBackupper) FinalizeBackup(log logrus.FieldLogger,
 	defer gzr.Close()
 	tr := tar.NewReader(gzr)
 
-	backupRequest.ResolvedActions, err = backupItemActionResolver.ResolveActions(kb.discoveryHelper, log)
+	backupRequest.ResolvedActions, err = backupItemActionResolver.ResolveActions(discoveryHelper, log)
 	if err != nil {
 		log.WithError(errors.WithStack(err)).Debugf("Error from backupItemActionResolver.ResolveActions")
 		return err
@@ -561,8 +589,8 @@ func (kb *kubernetesBackupper) FinalizeBackup(log logrus.FieldLogger,
 	collector := &itemCollector{
 		log:                   log,
 		backupRequest:         backupRequest,
-		discoveryHelper:       kb.discoveryHelper,
-		dynamicFactory:        kb.dynamicFactory,
+		discoveryHelper:       discoveryHelper,
+		dynamicFactory:        dynamicFactory,
 		cohabitatingResources: cohabitatingResources(),
 		dir:                   tempDir,
 		pageSize:              kb.clientPageSize,
@@ -581,9 +609,9 @@ func (kb *kubernetesBackupper) FinalizeBackup(log logrus.FieldLogger,
 	itemBackupper := &itemBackupper{
 		backupRequest:   backupRequest,
 		tarWriter:       tw,
-		dynamicFactory:  kb.dynamicFactory,
+		dynamicFactory:  dynamicFactory,
 		kbClient:        kb.kbClient,
-		discoveryHelper: kb.discoveryHelper,
+		discoveryHelper: discoveryHelper,
 		itemHookHandler: &hook.NoOpItemHookHandler{},
 	}
 	updateFiles := make(map[string]FileForArchive)
