@@ -99,9 +99,6 @@ type Restorer interface {
 
 // kubernetesRestorer implements Restorer for restoring into a Kubernetes cluster.
 type kubernetesRestorer struct {
-	discoveryHelper            discovery.Helper
-	dynamicFactory             client.DynamicFactory
-	namespaceClient            corev1.NamespaceInterface
 	podVolumeRestorerFactory   podvolume.RestorerFactory
 	podVolumeTimeout           time.Duration
 	resourceTerminatingTimeout time.Duration
@@ -119,10 +116,7 @@ type kubernetesRestorer struct {
 
 // NewKubernetesRestorer creates a new kubernetesRestorer.
 func NewKubernetesRestorer(
-	discoveryHelper discovery.Helper,
-	dynamicFactory client.DynamicFactory,
 	resourcePriorities Priorities,
-	namespaceClient corev1.NamespaceInterface,
 	podVolumeRestorerFactory podvolume.RestorerFactory,
 	podVolumeTimeout time.Duration,
 	resourceTerminatingTimeout time.Duration,
@@ -135,9 +129,6 @@ func NewKubernetesRestorer(
 	multiHookTracker *hook.MultiHookTracker,
 ) (Restorer, error) {
 	return &kubernetesRestorer{
-		discoveryHelper:            discoveryHelper,
-		dynamicFactory:             dynamicFactory,
-		namespaceClient:            namespaceClient,
 		podVolumeRestorerFactory:   podVolumeRestorerFactory,
 		podVolumeTimeout:           podVolumeTimeout,
 		resourceTerminatingTimeout: resourceTerminatingTimeout,
@@ -178,6 +169,23 @@ func (kr *kubernetesRestorer) RestoreWithResolvers(
 	restoreItemActionResolver framework.RestoreItemActionResolverV2,
 	volumeSnapshotterGetter VolumeSnapshotterGetter,
 ) (results.Result, results.Result) {
+
+	// NOTE: This requires that the BackupStorageLocation must always be named exactly as the target cluster.
+	clusterName := req.Location.Name
+	clientSet, dynamicClient, err := kube.NewClusterClients(go_context.Background(), kr.kbClient, crclient.ObjectKey{
+		Namespace: clusterName,
+		Name:      clusterName,
+	})
+	if err != nil {
+		return results.Result{}, results.Result{Velero: []string{err.Error()}}
+	}
+	discoveryHelper, err := discovery.NewHelper(clientSet, kr.logger)
+	if err != nil {
+		return results.Result{}, results.Result{Velero: []string{err.Error()}}
+	}
+	dynamicFactory := client.NewDynamicFactory(dynamicClient)
+	namespaceClient := clientSet.CoreV1().Namespaces()
+
 	// metav1.LabelSelectorAsSelector converts a nil LabelSelector to a
 	// Nothing Selector, i.e. a selector that matches nothing. We want
 	// a selector that matches everything. This can be accomplished by
@@ -205,7 +213,7 @@ func (kr *kubernetesRestorer) RestoreWithResolvers(
 
 	// Get resource includes-excludes.
 	resourceIncludesExcludes := collections.GetResourceIncludesExcludes(
-		kr.discoveryHelper,
+		discoveryHelper,
 		req.Restore.Spec.IncludedResources,
 		req.Restore.Spec.ExcludedResources,
 	)
@@ -215,7 +223,7 @@ func (kr *kubernetesRestorer) RestoreWithResolvers(
 
 	if req.Restore.Spec.RestoreStatus != nil {
 		restoreStatusIncludesExcludes = collections.GetResourceIncludesExcludes(
-			kr.discoveryHelper,
+			discoveryHelper,
 			req.Restore.Spec.RestoreStatus.IncludedResources,
 			req.Restore.Spec.RestoreStatus.ExcludedResources,
 		)
@@ -226,7 +234,7 @@ func (kr *kubernetesRestorer) RestoreWithResolvers(
 		Includes(req.Restore.Spec.IncludedNamespaces...).
 		Excludes(req.Restore.Spec.ExcludedNamespaces...)
 
-	resolvedActions, err := restoreItemActionResolver.ResolveActions(kr.discoveryHelper, kr.logger)
+	resolvedActions, err := restoreItemActionResolver.ResolveActions(discoveryHelper, kr.logger)
 	if err != nil {
 		return results.Result{}, results.Result{Velero: []string{err.Error()}}
 	}
@@ -255,17 +263,18 @@ func (kr *kubernetesRestorer) RestoreWithResolvers(
 		}
 	}
 
-	waitExecHookHandler := &hook.DefaultWaitExecHookHandler{
-		PodCommandExecutor: kr.podCommandExecutor,
-		ListWatchFactory: &hook.DefaultListWatchFactory{
-			PodsGetter: kr.podGetter,
-		},
-	}
+	// / We do not support hooks
+	//waitExecHookHandler := &hook.DefaultWaitExecHookHandler{
+	//	PodCommandExecutor: kr.podCommandExecutor,
+	//	ListWatchFactory: &hook.DefaultListWatchFactory{
+	//		PodsGetter: kr.podGetter,
+	//	},
+	//}
 
-	hooksWaitExecutor, err := newHooksWaitExecutor(req.Restore, waitExecHookHandler)
-	if err != nil {
-		return results.Result{}, results.Result{Velero: []string{err.Error()}}
-	}
+	//hooksWaitExecutor, err := newHooksWaitExecutor(req.Restore, waitExecHookHandler)
+	//if err != nil {
+	//	return results.Result{}, results.Result{Velero: []string{err.Error()}}
+	//}
 
 	pvRestorer := &pvRestorer{
 		logger:                  req.Log,
@@ -292,9 +301,9 @@ func (kr *kubernetesRestorer) RestoreWithResolvers(
 		selector:                       selector,
 		OrSelectors:                    OrSelectors,
 		log:                            req.Log,
-		dynamicFactory:                 kr.dynamicFactory,
+		dynamicFactory:                 dynamicFactory,
 		fileSystem:                     kr.fileSystem,
-		namespaceClient:                kr.namespaceClient,
+		namespaceClient:                namespaceClient,
 		restoreItemActions:             resolvedActions,
 		volumeSnapshotterGetter:        volumeSnapshotterGetter,
 		podVolumeRestorer:              podVolumeRestorer,
@@ -310,7 +319,7 @@ func (kr *kubernetesRestorer) RestoreWithResolvers(
 		restoredItems:                  req.RestoredItems,
 		renamedPVs:                     make(map[string]string),
 		pvRenamer:                      kr.pvRenamer,
-		discoveryHelper:                kr.discoveryHelper,
+		discoveryHelper:                discoveryHelper,
 		resourcePriorities:             kr.resourcePriorities,
 		kbClient:                       kr.kbClient,
 		itemOperationsList:             req.GetItemOperationsList(),
@@ -319,7 +328,8 @@ func (kr *kubernetesRestorer) RestoreWithResolvers(
 		multiHookTracker:               kr.multiHookTracker,
 		backupVolumeInfoMap:            req.BackupVolumeInfoMap,
 		restoreVolumeInfoTracker:       req.RestoreVolumeInfoTracker,
-		hooksWaitExecutor:              hooksWaitExecutor,
+		// We do not support hooks, do not need it
+		hooksWaitExecutor: nil,
 	}
 
 	return restoreCtx.execute()
@@ -1704,25 +1714,26 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 		}
 	}
 
+	// Note: we do not support hooks
 	// Asynchronously executes restore exec hooks if any
 	// Velero will wait for all the asynchronous hook operations to finish in finalizing phase, using hook tracker to track the execution progress.
-	if groupResource == kuberesource.Pods {
-		pod := new(v1.Pod)
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(createdObj.UnstructuredContent(), &pod); err != nil {
-			ctx.log.Errorf("error converting pod %s: %v", kube.NamespaceAndName(obj), err)
-			errs.Add(namespace, err)
-			return warnings, errs, itemExists
-		}
-
-		execHooksByContainer, err := ctx.hooksWaitExecutor.groupHooks(ctx.restore.Name, pod, ctx.multiHookTracker)
-		if err != nil {
-			ctx.log.Errorf("error grouping hooks from pod %s: %v", kube.NamespaceAndName(obj), err)
-			errs.Add(namespace, err)
-			return warnings, errs, itemExists
-		}
-
-		ctx.hooksWaitExecutor.exec(execHooksByContainer, pod, ctx.multiHookTracker, ctx.restore.Name)
-	}
+	//if groupResource == kuberesource.Pods {
+	//	pod := new(v1.Pod)
+	//	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(createdObj.UnstructuredContent(), &pod); err != nil {
+	//		ctx.log.Errorf("error converting pod %s: %v", kube.NamespaceAndName(obj), err)
+	//		errs.Add(namespace, err)
+	//		return warnings, errs, itemExists
+	//	}
+	//
+	//	execHooksByContainer, err := ctx.hooksWaitExecutor.groupHooks(ctx.restore.Name, pod, ctx.multiHookTracker)
+	//	if err != nil {
+	//		ctx.log.Errorf("error grouping hooks from pod %s: %v", kube.NamespaceAndName(obj), err)
+	//		errs.Add(namespace, err)
+	//		return warnings, errs, itemExists
+	//	}
+	//
+	//	ctx.hooksWaitExecutor.exec(execHooksByContainer, pod, ctx.multiHookTracker, ctx.restore.Name)
+	//}
 
 	// Wait for a CRD to be available for instantiating resources
 	// before continuing.

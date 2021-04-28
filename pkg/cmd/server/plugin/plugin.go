@@ -19,8 +19,6 @@ package plugin
 import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	apiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-
 	"github.com/vmware-tanzu/velero/pkg/datamover"
 
 	dia "github.com/vmware-tanzu/velero/internal/delete/actions/csi"
@@ -43,6 +41,10 @@ func NewCommand(f client.Factory) *cobra.Command {
 		Hidden: true,
 		Short:  "INTERNAL COMMAND ONLY - not intended to be run directly by users",
 		Run: func(c *cobra.Command, args []string) {
+			// TODO: FIND THE EQUIVALENT
+			// We don't want to leverage the restic features for our use case (disaster recovery without restore of
+			// disk content). Disabling the plugin is not sufficient and also required changes in other code parts.
+			//RegisterRestoreItemAction("velero.io/restic", newResticRestoreItemAction(f)).
 			pluginServer = pluginServer.
 				RegisterBackupItemAction(
 					"velero.io/pv",
@@ -68,10 +70,12 @@ func NewCommand(f client.Factory) *cobra.Command {
 					"velero.io/pod-volume-restore",
 					newPodVolumeRestoreItemAction(f),
 				).
-				RegisterRestoreItemAction(
-					"velero.io/init-restore-hook",
-					newInitRestoreHookPodAction,
-				).
+				// We disable all hook functionality because hooks can block our backup and restore process.
+				// Disabling the plugin is not sufficient and also required changes in other code parts.
+				//RegisterRestoreItemAction(
+				//	"velero.io/init-restore-hook",
+				//	newInitRestoreHookPodAction,
+				//).
 				RegisterRestoreItemAction(
 					"velero.io/service",
 					newServiceRestoreItemAction,
@@ -223,12 +227,9 @@ func newServiceAccountBackupItemAction(f client.Factory) plugincommon.HandlerIni
 
 func newRemapCRDVersionAction(f client.Factory) plugincommon.HandlerInitializer {
 	return func(logger logrus.FieldLogger) (interface{}, error) {
-		config, err := f.ClientConfig()
-		if err != nil {
-			return nil, err
-		}
-
-		client, err := apiextensions.NewForConfig(config)
+		// We switch to a KubebuilderClient here because it satisfies the interface of the "main" client, with which we
+		// are able to dynamically obtain the kubeconfig secrets for the target clusters when backing up v1beta1 CRDs.
+		c, err := f.KubebuilderClient()
 		if err != nil {
 			return nil, err
 		}
@@ -242,7 +243,9 @@ func newRemapCRDVersionAction(f client.Factory) plugincommon.HandlerInitializer 
 			return nil, err
 		}
 
-		return bia.NewRemapCRDVersionAction(logger, client.ApiextensionsV1beta1().CustomResourceDefinitions(), discoveryHelper), nil
+		// NOTE(schmax6): though the discoveryHelper is connected to the management cluster,
+		// we do not use it in the action. We keep it here to simplify the fork
+		return bia.NewRemapCRDVersionAction(logger, c, discoveryHelper), nil
 	}
 }
 

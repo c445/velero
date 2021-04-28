@@ -370,6 +370,7 @@ func newServer(f client.Factory, config serverConfig, logger *logrus.Logger) (*s
 		Scheme: scheme,
 		Cache: cache.Options{
 			DefaultNamespaces: map[string]cache.Config{
+				//NOTE(MAX): MIGHT THIS BE WERE WE NEED TO SET IT TO EMPTY?
 				f.Namespace(): {},
 			},
 		},
@@ -446,6 +447,11 @@ func (s *server) run() error {
 		return err
 	}
 
+	// TODO: this was replaced with the 3 functions calls below
+	// We don't need the restic features for our use case.
+	//if err := s.initRestic(); err != nil {
+	//	return err
+	//}
 	s.checkNodeAgent()
 
 	if err := s.initRepoManager(); err != nil {
@@ -737,6 +743,9 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 	// Enable BSL controller. No need to check whether it's enabled or not.
 	bslr := controller.NewBackupStorageLocationReconciler(
+		//TODO: we had this
+		// // Empty namespace so that the controller is able to retrieve Backups from any namespace.
+		//			"",
 		s.ctx,
 		s.mgr.GetClient(),
 		storage.DefaultBackupLocationInfo{
@@ -759,8 +768,6 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	if _, ok := enabledRuntimeControllers[controller.Backup]; ok {
 		backupper, err := backup.NewKubernetesBackupper(
 			s.crClient,
-			s.discoveryHelper,
-			client.NewDynamicFactory(s.dynamicClient),
 			podexec.NewPodCommandExecutor(s.kubeClientConfig, s.kubeClient.CoreV1().RESTClient()),
 			podvolume.NewBackupperFactory(
 				s.repoLocker,
@@ -825,6 +832,8 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	backupOpsMap := itemoperationmap.NewBackupItemOperationsMap()
 	if _, ok := enabledRuntimeControllers[controller.BackupOperations]; ok {
 		r := controller.NewBackupOperationsReconciler(
+			//TODO: // Empty namespace so that the controller is able to retrieve Schedules from any namespace.
+			//			"",
 			s.logger,
 			s.mgr.GetClient(),
 			s.config.itemOperationSyncFrequency,
@@ -841,8 +850,6 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	if _, ok := enabledRuntimeControllers[controller.BackupFinalizer]; ok {
 		backupper, err := backup.NewKubernetesBackupper(
 			s.mgr.GetClient(),
-			s.discoveryHelper,
-			client.NewDynamicFactory(s.dynamicClient),
 			podexec.NewPodCommandExecutor(s.kubeClientConfig, s.kubeClient.CoreV1().RESTClient()),
 			podvolume.NewBackupperFactory(
 				s.repoLocker,
@@ -948,10 +955,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 	if _, ok := enabledRuntimeControllers[controller.Restore]; ok {
 		restorer, err := restore.NewKubernetesRestorer(
-			s.discoveryHelper,
-			client.NewDynamicFactory(s.dynamicClient),
 			s.config.restoreResourcePriorities,
-			s.kubeClient.CoreV1().Namespaces(),
 			podvolume.NewRestorerFactory(
 				s.repoLocker,
 				s.repoEnsurer,
@@ -975,6 +979,9 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 		r := controller.NewRestoreReconciler(
 			s.ctx,
+			//TODO: check empty namespace
+			// Empty namespace so that the controller is able to retrieve Restores from any namespace.
+			//"",
 			s.namespace,
 			restorer,
 			s.mgr.GetClient(),
