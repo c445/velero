@@ -19,6 +19,8 @@ package client
 import (
 	"os"
 
+	v1 "k8s.io/api/core/v1"
+
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/pkg/errors"
@@ -151,6 +153,8 @@ func (f *factory) KubebuilderClient() (kbclient.Client, error) {
 
 	scheme := runtime.NewScheme()
 	velerov1api.AddToScheme(scheme)
+	// We add v1 to our scheme so that we are also able to retrieve remote cluster kubeconfig secrets with this client.
+	v1.AddToScheme(scheme)
 	kubebuilderClient, err := kbclient.New(clientConfig, kbclient.Options{
 		Scheme: scheme,
 	})
