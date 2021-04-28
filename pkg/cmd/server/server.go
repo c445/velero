@@ -403,12 +403,16 @@ func newServer(f client.Factory, config serverConfig, logger *logrus.Logger) (*s
 	}
 
 	s := &server{
-		namespace:             f.Namespace(),
-		metricsAddress:        config.metricsAddress,
-		kubeClientConfig:      clientConfig,
-		kubeClient:            kubeClient,
-		discoveryClient:       discoveryClient,
-		dynamicClient:         dynamicClient,
+		namespace:        f.Namespace(),
+		metricsAddress:   config.metricsAddress,
+		kubeClientConfig: clientConfig,
+		kubeClient:       kubeClient,
+		discoveryClient:  discoveryClient,
+		dynamicClient:    dynamicClient,
+		// We setup an informer with an empty namespace so that we register changes of resources in any namespace.
+		// This is needed because CRs like Backup, Restore, Schedule etc. reside in other namespaces than the velero
+		// server itself. TODO: check how this will be acomplished
+		//sharedInformerFactory:               informers.NewSharedInformerFactoryWithOptions(veleroClient, 0, informers.WithNamespace("")),
 		crClient:              crClient,
 		ctx:                   ctx,
 		cancelFunc:            cancelFunc,
@@ -446,11 +450,13 @@ func (s *server) run() error {
 		return err
 	}
 
-	s.checkNodeAgent()
+	// We don't need the volume (former restic) features for our use case. TODO: check
 
-	if err := s.initRepoManager(); err != nil {
-		return err
-	}
+	//s.checkNodeAgent()
+	//
+	//if err := s.initRepoManager(); err != nil {
+	//	return err
+	//}
 
 	if err := s.setupBeforeControllerRun(); err != nil {
 		return err
@@ -735,6 +741,10 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 		log.Fatal(err, "unable to disable a controller")
 	}
 
+	// TODO: check this:
+	// Empty namespace so that the controller is able to retrieve Backups from any namespace.
+	//			"",
+	// probably the backupStoreGetter?
 	// Enable BSL controller. No need to check whether it's enabled or not.
 	bslr := controller.NewBackupStorageLocationReconciler(
 		s.ctx,
@@ -759,8 +769,8 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	if _, ok := enabledRuntimeControllers[controller.Backup]; ok {
 		backupper, err := backup.NewKubernetesBackupper(
 			s.crClient,
-			s.discoveryHelper,
-			client.NewDynamicFactory(s.dynamicClient),
+			//s.discoveryHelper,
+			//client.NewDynamicFactory(s.dynamicClient),
 			podexec.NewPodCommandExecutor(s.kubeClientConfig, s.kubeClient.CoreV1().RESTClient()),
 			podvolume.NewBackupperFactory(
 				s.repoLocker,
@@ -805,6 +815,9 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 		}
 	}
 
+	// TODO: check this:
+	// // Empty namespace so that the controller is able to retrieve Schedules from any namespace.
+	//			"",
 	if _, ok := enabledRuntimeControllers[controller.BackupDeletion]; ok {
 		if err := controller.NewBackupDeletionReconciler(
 			s.logger,
@@ -841,8 +854,8 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	if _, ok := enabledRuntimeControllers[controller.BackupFinalizer]; ok {
 		backupper, err := backup.NewKubernetesBackupper(
 			s.mgr.GetClient(),
-			s.discoveryHelper,
-			client.NewDynamicFactory(s.dynamicClient),
+			//s.discoveryHelper,
+			//client.NewDynamicFactory(s.dynamicClient),
 			podexec.NewPodCommandExecutor(s.kubeClientConfig, s.kubeClient.CoreV1().RESTClient()),
 			podvolume.NewBackupperFactory(
 				s.repoLocker,
@@ -948,10 +961,11 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 	if _, ok := enabledRuntimeControllers[controller.Restore]; ok {
 		restorer, err := restore.NewKubernetesRestorer(
-			s.discoveryHelper,
-			client.NewDynamicFactory(s.dynamicClient),
+			//s.discoveryHelper,
+			//client.NewDynamicFactory(s.dynamicClient),
 			s.config.restoreResourcePriorities,
-			s.kubeClient.CoreV1().Namespaces(),
+			// TODO: check this
+			//s.kubeClient.CoreV1().Namespaces(),
 			podvolume.NewRestorerFactory(
 				s.repoLocker,
 				s.repoEnsurer,
@@ -973,6 +987,9 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 		cmd.CheckError(err)
 
+		// TODO: check this
+		// // Empty namespace so that the controller is able to retrieve Restores from any namespace.
+		//			"",
 		r := controller.NewRestoreReconciler(
 			s.ctx,
 			s.namespace,

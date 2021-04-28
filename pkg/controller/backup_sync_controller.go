@@ -170,7 +170,9 @@ func (b *backupSyncReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			log.Debugf("%v Backup is past expiration, syncing for garbage collection", backup.Status.Phase)
 			backup.Status.Phase = velerov1api.BackupPhasePartiallyFailed
 		}
-		backup.Namespace = b.namespace
+		// We want to keep the namespace of the found backup instead of deploying it into the namespace where the
+		// controller resides.
+		//backup.Namespace = b.namespace
 		backup.ResourceVersion = ""
 
 		// update the StorageLocation field and label since the name of the location

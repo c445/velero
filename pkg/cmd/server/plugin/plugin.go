@@ -64,14 +64,18 @@ func NewCommand(f client.Factory) *cobra.Command {
 					"velero.io/pod",
 					newPodRestoreItemAction,
 				).
-				RegisterRestoreItemAction(
-					"velero.io/pod-volume-restore",
-					newPodVolumeRestoreItemAction(f),
-				).
-				RegisterRestoreItemAction(
-					"velero.io/init-restore-hook",
-					newInitRestoreHookPodAction,
-				).
+				// We don't want to leverage the restic features for our use case (disaster recovery without restore of
+				// disk content). Disabling the plugin is not sufficient and also required changes in other code parts.
+				//RegisterRestoreItemAction(
+				//	"velero.io/pod-volume-restore",
+				//	newPodVolumeRestoreItemAction(f),
+				//).
+				// We disable all hook functionality because hooks can block our backup and restore process.
+				// Disabling the plugin is not sufficient and also required changes in other code parts.
+				//RegisterRestoreItemAction(
+				//	"velero.io/init-restore-hook",
+				//	newInitRestoreHookPodAction,
+				//).
 				RegisterRestoreItemAction(
 					"velero.io/service",
 					newServiceRestoreItemAction,
@@ -223,12 +227,9 @@ func newServiceAccountBackupItemAction(f client.Factory) plugincommon.HandlerIni
 
 func newRemapCRDVersionAction(f client.Factory) plugincommon.HandlerInitializer {
 	return func(logger logrus.FieldLogger) (interface{}, error) {
-		config, err := f.ClientConfig()
-		if err != nil {
-			return nil, err
-		}
-
-		client, err := apiextensions.NewForConfig(config)
+		// We switch to a KubebuilderClient here because it satisfies the interface of the "main" client, with which we
+		// are able to dynamically obtain the kubeconfig secrets for the target clusters when backing up v1beta1 CRDs.
+		c, err := f.KubebuilderClient()
 		if err != nil {
 			return nil, err
 		}
@@ -241,8 +242,10 @@ func newRemapCRDVersionAction(f client.Factory) plugincommon.HandlerInitializer 
 		if err != nil {
 			return nil, err
 		}
-
-		return bia.NewRemapCRDVersionAction(logger, client.ApiextensionsV1beta1().CustomResourceDefinitions(), discoveryHelper), nil
+		// TODO: double check
+		// NOTE(schmax6): though the discoveryHelper is connected to the management cluster,
+		// we do not use it in the action. We keep it here to simplify the fork
+		return bia.NewRemapCRDVersionAction(logger, c, discoveryHelper), nil
 	}
 }
 
