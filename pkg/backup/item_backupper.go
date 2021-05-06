@@ -126,11 +126,12 @@ func (ib *itemBackupper) backupItemInternal(logger logrus.FieldLogger, obj runti
 	if mustInclude {
 		log.Infof("Skipping the exclusion checks for this resource")
 	} else {
-		if metadata.GetLabels()[velerov1api.ExcludeFromBackupLabel] == "true" {
-			log.Infof("Excluding item because it has label %s=true", velerov1api.ExcludeFromBackupLabel)
-			ib.trackSkippedPV(obj, groupResource, "", fmt.Sprintf("item has label %s=true", velerov1api.ExcludeFromBackupLabel), log)
-			return false, itemFiles, nil
-		}
+		// NOTE: We don't want to allow to skip the backup of certain resources.
+		//if metadata.GetLabels()[velerov1api.ExcludeFromBackupLabel] == "true" {
+		//	log.Infof("Excluding item because it has label %s=true", velerov1api.ExcludeFromBackupLabel)
+		//	ib.trackSkippedPV(obj, groupResource, "", fmt.Sprintf("item has label %s=true", velerov1api.ExcludeFromBackupLabel), log)
+		//	return false, itemFiles, nil
+		//}
 		// NOTE: we have to re-check namespace & resource includes/excludes because it's possible that
 		// backupItem can be invoked by a custom action.
 		if namespace != "" && !ib.backupRequest.NamespaceIncludesExcludes.ShouldInclude(namespace) {
