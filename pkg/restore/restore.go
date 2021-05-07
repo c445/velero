@@ -424,10 +424,6 @@ func (ctx *restoreContext) execute() (Result, Result) {
 		}
 	}
 
-	selectedResourceCollection, w, e := ctx.getOrderedResourceCollection(backupResources)
-	warnings.Merge(&w)
-	errs.Merge(&e)
-
 	type progressUpdate struct {
 		totalItems, itemsRestored int
 	}
@@ -470,95 +466,104 @@ func (ctx *restoreContext) execute() (Result, Result) {
 		}
 	}()
 
-	// totalItems: previously discovered items, i: iteration counter.
-	totalItems, i, existingNamespaces := 0, 0, sets.NewString()
+	// We run the restore twice to circumvent the issue that a CR is tried to be restored before the corresponding CRD
+	// has been restored. In the second run the CRD API should be discovered and the corresponding CR can be restored.
+	for i := 0; i < 2; i++ {
+		selectedResourceCollection, w, e := ctx.getOrderedResourceCollection(backupResources)
+		warnings.Merge(&w)
+		errs.Merge(&e)
 
-	for _, selectedResource := range selectedResourceCollection {
-		totalItems += selectedResource.totalItems
-	}
+		// totalItems: previously discovered items, i: iteration counter.
+		totalItems, i, existingNamespaces := 0, 0, sets.NewString()
 
-	for _, selectedResource := range selectedResourceCollection {
-		groupResource := schema.ParseGroupResource(selectedResource.resource)
+		for _, selectedResource := range selectedResourceCollection {
+			totalItems += selectedResource.totalItems
+		}
 
-		for namespace, selectedItems := range selectedResource.selectedItemsByNamespace {
-			for _, selectedItem := range selectedItems {
-				// If we don't know whether this namespace exists yet, attempt to create
-				// it in order to ensure it exists. Try to get it from the backup tarball
-				// (in order to get any backed-up metadata), but if we don't find it there,
-				// create a blank one.
-				if namespace != "" && !existingNamespaces.Has(selectedItem.targetNamespace) {
-					logger := ctx.log.WithField("namespace", namespace)
+		for _, selectedResource := range selectedResourceCollection {
+			groupResource := schema.ParseGroupResource(selectedResource.resource)
 
-					ns := getNamespace(
-						logger,
-						archive.GetItemFilePath(ctx.restoreDir, "namespaces", "", namespace),
-						selectedItem.targetNamespace,
-					)
-					_, nsCreated, err := kube.EnsureNamespaceExistsAndIsReady(
-						ns,
-						ctx.namespaceClient,
-						ctx.resourceTerminatingTimeout,
-					)
+			for namespace, selectedItems := range selectedResource.selectedItemsByNamespace {
+				for _, selectedItem := range selectedItems {
+					// If we don't know whether this namespace exists yet, attempt to create
+					// it in order to ensure it exists. Try to get it from the backup tarball
+					// (in order to get any backed-up metadata), but if we don't find it there,
+					// create a blank one.
+					if namespace != "" && !existingNamespaces.Has(selectedItem.targetNamespace) {
+						logger := ctx.log.WithField("namespace", namespace)
+
+						ns := getNamespace(
+							logger,
+							archive.GetItemFilePath(ctx.restoreDir, "namespaces", "", namespace),
+							selectedItem.targetNamespace,
+						)
+						_, nsCreated, err := kube.EnsureNamespaceExistsAndIsReady(
+							ns,
+							ctx.namespaceClient,
+							ctx.resourceTerminatingTimeout,
+						)
+						if err != nil {
+							errs.AddVeleroError(err)
+							continue
+						}
+
+						// Add the newly created namespace to the list of restored items.
+						if nsCreated {
+							itemKey := velero.ResourceIdentifier{
+								GroupResource: kuberesource.Namespaces,
+								Namespace:     ns.Namespace,
+								Name:          ns.Name,
+							}
+							ctx.restoredItems[itemKey] = struct{}{}
+						}
+
+						// Keep track of namespaces that we know exist so we don't
+						// have to try to create them multiple times.
+						existingNamespaces.Insert(selectedItem.targetNamespace)
+					}
+
+					obj, err := archive.Unmarshal(ctx.fileSystem, selectedItem.path)
 					if err != nil {
-						errs.AddVeleroError(err)
+						errs.Add(
+							selectedItem.targetNamespace,
+							fmt.Errorf(
+								"error decoding %q: %v",
+								strings.Replace(selectedItem.path, ctx.restoreDir+"/", "", -1),
+								err,
+							),
+						)
 						continue
 					}
 
-					// Add the newly created namespace to the list of restored items.
-					if nsCreated {
-						itemKey := velero.ResourceIdentifier{
-							GroupResource: kuberesource.Namespaces,
-							Namespace:     ns.Namespace,
-							Name:          ns.Name,
-						}
-						ctx.restoredItems[itemKey] = struct{}{}
+					w, e := ctx.restoreItem(obj, groupResource, selectedItem.targetNamespace)
+					warnings.Merge(&w)
+					errs.Merge(&e)
+					i++
+
+					// totalItems keeps the count of items previously known. There
+					// may be additional items restored by plugins. We want to include
+					// the additional items by looking at restoredItems at the same
+					// time, we don't want previously known items counted twice as
+					// they are present in both restoredItems and totalItems.
+					actualTotalItems := len(ctx.restoredItems) + (totalItems - i)
+					update <- progressUpdate{
+						totalItems:    actualTotalItems,
+						itemsRestored: len(ctx.restoredItems),
 					}
-
-					// Keep track of namespaces that we know exist so we don't
-					// have to try to create them multiple times.
-					existingNamespaces.Insert(selectedItem.targetNamespace)
 				}
+			}
 
-				obj, err := archive.Unmarshal(ctx.fileSystem, selectedItem.path)
-				if err != nil {
-					errs.Add(
-						selectedItem.targetNamespace,
-						fmt.Errorf(
-							"error decoding %q: %v",
-							strings.Replace(selectedItem.path, ctx.restoreDir+"/", "", -1),
-							err,
-						),
-					)
-					continue
-				}
-
-				w, e := ctx.restoreItem(obj, groupResource, selectedItem.targetNamespace)
-				warnings.Merge(&w)
-				errs.Merge(&e)
-				i++
-
-				// totalItems keeps the count of items previously known. There
-				// may be additional items restored by plugins. We want to include
-				// the additional items by looking at restoredItems at the same
-				// time, we don't want previously known items counted twice as
-				// they are present in both restoredItems and totalItems.
-				actualTotalItems := len(ctx.restoredItems) + (totalItems - i)
-				update <- progressUpdate{
-					totalItems:    actualTotalItems,
-					itemsRestored: len(ctx.restoredItems),
+			// If we just restored custom resource definitions (CRDs), refresh
+			// discovery because the restored CRDs may have created new APIs that
+			// didn't previously exist in the cluster, and we want to be able to
+			// resolve & restore instances of them in subsequent loop iterations.
+			if groupResource == kuberesource.CustomResourceDefinitions {
+				if err := ctx.discoveryHelper.Refresh(); err != nil {
+					warnings.Add("", errors.Wrap(err, "refresh discovery after restoring CRDs"))
 				}
 			}
 		}
 
-		// If we just restored custom resource definitions (CRDs), refresh
-		// discovery because the restored CRDs may have created new APIs that
-		// didn't previously exist in the cluster, and we want to be able to
-		// resolve & restore instances of them in subsequent loop iterations.
-		if groupResource == kuberesource.CustomResourceDefinitions {
-			if err := ctx.discoveryHelper.Refresh(); err != nil {
-				warnings.Add("", errors.Wrap(err, "refresh discovery after restoring CRDs"))
-			}
-		}
 	}
 
 	// Close the progress update channel.
