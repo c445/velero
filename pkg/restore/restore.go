@@ -1602,12 +1602,15 @@ func (ctx *restoreContext) getOrderedResourceCollection(backupResources map[stri
 	// ordered list twice.
 	for _, resource := range getOrderedResources(ctx.resourcePriorities, backupResources) {
 		// try to resolve the resource via discovery to a complete group/version/resource
-		gvr, _, err := ctx.discoveryHelper.ResourceFor(schema.ParseGroupResource(resource).WithVersion(""))
+		var groupResource schema.GroupResource
+		inputGVR := schema.ParseGroupResource(resource).WithVersion("")
+		gvr, _, err := ctx.discoveryHelper.ResourceFor(inputGVR)
 		if err != nil {
-			ctx.log.WithField("resource", resource).Infof("Skipping restore of resource because it cannot be resolved via discovery")
-			continue
+			ctx.log.WithField("resource", resource).Warnf("Could not be resolved via discovery. Parsing GroupResource manually without discovery.")
+			groupResource = inputGVR.GroupResource()
+		} else {
+			groupResource = gvr.GroupResource()
 		}
-		groupResource := gvr.GroupResource()
 
 		// Check if we've already restored this resource (this would happen if
 		// the resource we're currently looking at was already restored because
