@@ -1468,10 +1468,12 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 		obj.SetNamespace(namespace)
 	}
 
+	// NOTE: We want restores to be transparent, so we don't want to add those labels, as they would overwrite the ones
+	//  that might have been set by the customers' Velero.
 	// Label the resource with the restore's name and the restored backup's name
 	// for easy identification of all cluster resources created by this restore
 	// and which backup they came from.
-	addRestoreLabels(obj, ctx.restore.Name, ctx.restore.Spec.BackupName)
+	//addRestoreLabels(obj, ctx.restore.Name, ctx.restore.Spec.BackupName)
 
 	// The object apiVersion might get modified by a RestorePlugin so we need to
 	// get a new client to reflect updated resource path.
@@ -1552,10 +1554,12 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 			return warnings, errs, itemExists
 		}
 
+		// NOTE: We want restores to be transparent, so we don't want to add those labels, as they would overwrite the ones
+		//  that might have been set by the customers' Velero.
 		// We know the object from the cluster won't have the backup/restore name
 		// labels, so copy them from the object we attempted to restore.
-		labels := obj.GetLabels()
-		addRestoreLabels(fromCluster, labels[velerov1api.RestoreNameLabel], labels[velerov1api.BackupNameLabel])
+		// labels := obj.GetLabels()
+		// addRestoreLabels(fromCluster, labels[velerov1api.RestoreNameLabel], labels[velerov1api.BackupNameLabel])
 		fromClusterWithLabels := fromCluster.DeepCopy() // saving the in-cluster object so that we can create label patch if overall patch fails
 
 		if !equality.Semantic.DeepEqual(fromCluster, obj) {
