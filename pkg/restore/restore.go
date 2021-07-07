@@ -1115,6 +1115,8 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 			// want to dynamically re-provision it.
 			return warnings, errs
 
+		// CaaS: we want to have the PVs with the reclaim policy Delete also to be restored as it-is (i.e., with correct claimRef)
+		//
 		//case hasDeleteReclaimPolicy(obj.Object):
 		//	ctx.log.Infof("Dynamically re-provisioning persistent volume because it doesn't have a snapshot and its reclaim policy is Delete.")
 		//	ctx.pvsToProvision.Insert(name)
