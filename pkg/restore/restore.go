@@ -103,6 +103,8 @@ type Restorer interface {
 // kubernetesRestorer implements Restorer for restoring into a Kubernetes cluster.
 type kubernetesRestorer struct {
 	restoreClient              velerov1client.RestoresGetter
+	discoveryHelper            discovery.Helper
+	dynamicFactory             client.DynamicFactory
 	client                     kbclient.Client
 	namespaceClient            corev1.NamespaceInterface
 	resticRestorerFactory      restic.RestorerFactory

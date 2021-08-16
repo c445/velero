@@ -21,16 +21,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
-	apiextfakes "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	v1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/builder"
@@ -39,14 +40,18 @@ import (
 
 func TestRemapCRDVersionAction(t *testing.T) {
 	backup := &v1.Backup{}
-	clientset := apiextfakes.NewSimpleClientset()
-	betaClient := clientset.ApiextensionsV1beta1().CustomResourceDefinitions()
+	testEnv := &envtest.Environment{
+		CRDDirectoryPaths:        []string{filepath.Join("..", "config", "crd", "bases")},
+		AttachControlPlaneOutput: true,
+	}
+	cfg, _ := testEnv.Start()
+	betaClient, _ := client.New(cfg, client.Options{})
 
 	// build a v1beta1 CRD with the same name and add it to the fake client that the plugin is going to call.
 	// keep the same one for all 3 tests, since there's little value in recreating it
 	b := builder.ForCustomResourceDefinition("test.velero.io")
 	c := b.Result()
-	_, err := betaClient.Create(context.TODO(), c, metav1.CreateOptions{})
+	err := betaClient.Create(context.TODO(), c)
 	require.NoError(t, err)
 
 	a := NewRemapCRDVersionAction(velerotest.NewLogger(), betaClient)
@@ -114,8 +119,12 @@ func TestRemapCRDVersionAction(t *testing.T) {
 // TestRemapCRDVersionActionData tests the RemapCRDVersionAction plugin against actual CRD to confirm that the v1beta1 version is returned when the v1 version is passed in to the plugin.
 func TestRemapCRDVersionActionData(t *testing.T) {
 	backup := &v1.Backup{}
-	clientset := apiextfakes.NewSimpleClientset()
-	betaClient := clientset.ApiextensionsV1beta1().CustomResourceDefinitions()
+	testEnv := &envtest.Environment{
+		CRDDirectoryPaths:        []string{filepath.Join("..", "config", "crd", "bases")},
+		AttachControlPlaneOutput: true,
+	}
+	cfg, _ := testEnv.Start()
+	betaClient, _ := client.New(cfg, client.Options{})
 
 	a := NewRemapCRDVersionAction(velerotest.NewLogger(), betaClient)
 
@@ -163,7 +172,7 @@ func TestRemapCRDVersionActionData(t *testing.T) {
 			err = json.Unmarshal([]byte(f), &crd)
 			require.NoError(t, err)
 
-			_, err = betaClient.Create(context.TODO(), &crd, metav1.CreateOptions{})
+			err = betaClient.Create(context.TODO(), &crd)
 			require.NoError(t, err)
 
 			// Run method under test
@@ -187,7 +196,7 @@ func TestRemapCRDVersionActionData(t *testing.T) {
 			}
 
 			// Clean up the item created in the test.
-			betaClient.Delete(context.TODO(), crd.Name, metav1.DeleteOptions{})
+			betaClient.Delete(context.TODO(), &crd)
 		})
 	}
 

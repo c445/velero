@@ -70,6 +70,8 @@ type Backupper interface {
 type kubernetesBackupper struct {
 	backupClient           velerov1client.BackupsGetter
 	client                 kbclient.Client
+	dynamicFactory         client.DynamicFactory
+	discoveryHelper        discovery.Helper
 	podCommandExecutor     podexec.PodCommandExecutor
 	resticBackupperFactory restic.BackupperFactory
 	resticTimeout          time.Duration

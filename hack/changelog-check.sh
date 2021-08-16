@@ -17,6 +17,9 @@
 
 set +x
 
+echo "This script is disabled"
+exit 0
+
 if [[ -z "$CI" ]]; then
    echo "This script is intended to be run only on Github Actions." >&2
    exit 1
