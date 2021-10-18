@@ -197,8 +197,9 @@ func (r *backupStorageLocationReconciler) logReconciledPhase(defaultFound bool, 
 		log.Warnf("Unavailable BackupStorageLocations detected: available/unavailable/unknown: %v/%v/%v, %s)", numAvailable, numUnavailable, numUnknown, strings.Join(errs, "; "))
 	}
 
-	if !defaultFound {
-		log.Warn("There is no existing BackupStorageLocation set as default. Please see `velero backup-location -h` for options.")
+	// CaaS: we never set a default backup storage location.
+	if !defaultFound && len(locationList.Items) == 0 {
+		log.Warn("There is no existing backup storage location set as default. Please see `velero backup-location -h` for options.")
 	}
 }
 
