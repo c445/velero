@@ -627,14 +627,14 @@ func (c *backupController) runBackup(backup *pkgbackup.Request) error {
 		}
 	}
 
+	backup.Status.Warnings = logCounter.GetCount(logrus.WarnLevel)
+	backup.Status.Errors = logCounter.GetCount(logrus.ErrorLevel)
+
 	recordBackupMetrics(backupLog, backup.Backup, backupFile, c.metrics)
 
 	if err := gzippedLogFile.Close(); err != nil {
 		c.logger.WithField(Backup, kubeutil.NamespaceAndName(backup)).WithError(err).Error("error closing gzippedLogFile")
 	}
-
-	backup.Status.Warnings = logCounter.GetCount(logrus.WarnLevel)
-	backup.Status.Errors = logCounter.GetCount(logrus.ErrorLevel)
 
 	// Assign finalize phase as close to end as possible so that any errors
 	// logged to backupLog are captured. This is done before uploading the
