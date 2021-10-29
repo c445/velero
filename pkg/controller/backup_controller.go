@@ -691,6 +691,10 @@ func (b *backupReconciler) runBackup(backup *pkgbackup.Request) error {
 			backupLog.Error(err)
 		}
 	}
+	backup.Status.Warnings = logCounter.GetCount(logrus.WarnLevel)
+	backup.Status.Errors = logCounter.GetCount(logrus.ErrorLevel)
+
+	recordBackupMetrics(backupLog, backup.Backup, backupFile, b.metrics, false)
 
 	backup.Status.BackupItemOperationsAttempted = len(*backup.GetItemOperationsList())
 	backup.Status.BackupItemOperationsCompleted = opsCompleted
@@ -790,6 +794,7 @@ func recordBackupMetrics(log logrus.FieldLogger, backup *velerov1api.Backup, bac
 
 		if backup.Status.Progress != nil {
 			serverMetrics.RegisterBackupItemsTotalGauge(backupScheduleName, backup.Status.Progress.TotalItems)
+			serverMetrics.RegisterBackupItemsBackedUpGauge(backupScheduleName, backup.Status.Progress.ItemsBackedUp)
 		}
 		serverMetrics.RegisterBackupItemsErrorsGauge(backupScheduleName, backup.Status.Errors)
 
