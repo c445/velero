@@ -818,7 +818,6 @@ func recordBackupMetrics(log logrus.FieldLogger, backup *velerov1api.Backup, bac
 			serverMetrics.RegisterCSISnapshotFailures(backupScheduleName, backup.Name, backup.Status.CSIVolumeSnapshotsAttempted-backup.Status.CSIVolumeSnapshotsCompleted)
 		}
 
-		serverMetrics.RegisterBackupItemsBackedUpGauge(backupScheduleName, backup.Status.Progress.ItemsBackedUp)
 		if backup.Status.Progress != nil {
 			serverMetrics.RegisterBackupItemsTotalGauge(backupScheduleName, backup.Status.Progress.TotalItems)
 		}
