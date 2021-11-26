@@ -26,6 +26,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -206,9 +207,8 @@ type VolumeSnapshotterGetter interface {
 // to the backup log.
 func (kb *kubernetesBackupper) Backup(log logrus.FieldLogger, backupRequest *Request, backupFile io.Writer,
 	actions []biav2.BackupItemAction, volumeSnapshotterGetter VolumeSnapshotterGetter) error {
-	// TODO: is this still valid? check
-	// NOTE: This requires that the BackupStorageLocation must always be named exactly as the target cluster.
-	clusterName := backupRequest.StorageLocation.Name
+	// NOTE: The BackupStorageLocation name must be postfixed by the cluster name, separated by a dash.
+	clusterName := strings.Split(backupRequest.StorageLocation.Name, "-")[0]
 	clientSet, dynamicClient, err := kube.NewClusterClients(context.Background(), kb.kbClient, kbclient.ObjectKey{
 		Namespace: backupRequest.Namespace,
 		Name:      clusterName,
