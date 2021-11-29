@@ -19,6 +19,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"sigs.k8s.io/cluster-api/controllers/remote"
@@ -116,7 +117,7 @@ CheckVersion:
 	switch {
 	case hasSingleVersion(crd), hasNonStructuralSchema(crd), hasPreserveUnknownFields(crd):
 		log.Infof("CustomResourceDefinition %s appears to be v1beta1, fetching the v1beta version", crd.Name)
-		clusterName := backup.Spec.StorageLocation
+		clusterName := strings.Split(backup.Spec.StorageLocation, "-")[0]
 		cluster := client.ObjectKey{
 			Namespace: clusterName,
 			Name:      clusterName,
