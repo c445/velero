@@ -37,6 +37,7 @@ import (
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"github.com/vmware-tanzu/velero/internal/hook"
 	api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
@@ -238,6 +239,7 @@ func (r *restoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}
 		})).
 		For(&api.Restore{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 5}).
 		Complete(r)
 }
 
