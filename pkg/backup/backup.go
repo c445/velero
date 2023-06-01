@@ -102,7 +102,6 @@ func NewKubernetesBackupper(
 	kbClient kbclient.Client,
 	discoveryHelper discovery.Helper,
 	dynamicFactory client.DynamicFactory,
-	client kbclient.Client,
 	podCommandExecutor podexec.PodCommandExecutor,
 	podVolumeBackupperFactory podvolume.BackupperFactory,
 	podVolumeTimeout time.Duration,
