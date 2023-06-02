@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	velerodiscovery "github.com/vmware-tanzu/velero/pkg/discovery"
 
@@ -43,6 +44,7 @@ func TestRemapCRDVersionAction(t *testing.T) {
 	backup := &v1.Backup{}
 	clientset := apiextfakes.NewSimpleClientset()
 	betaClient := clientset.ApiextensionsV1beta1().CustomResourceDefinitions()
+	client := fake.NewClientBuilder().Build()
 
 	// build a v1beta1 CRD with the same name and add it to the fake client that the plugin is going to call.
 	// keep the same one for all 3 tests, since there's little value in recreating it
@@ -50,7 +52,7 @@ func TestRemapCRDVersionAction(t *testing.T) {
 	c := b.Result()
 	_, err := betaClient.Create(context.TODO(), c, metav1.CreateOptions{})
 	require.NoError(t, err)
-	a := NewRemapCRDVersionAction(velerotest.NewLogger(), betaClient, fakeDiscoveryHelper())
+	a := NewRemapCRDVersionAction(velerotest.NewLogger(), client, fakeDiscoveryHelper())
 
 	t.Run("Test a v1 CRD without any Schema information", func(t *testing.T) {
 		b := builder.ForV1CustomResourceDefinition("test.velero.io")
@@ -144,7 +146,8 @@ func TestRemapCRDVersionActionData(t *testing.T) {
 	backup := &v1.Backup{}
 	clientset := apiextfakes.NewSimpleClientset()
 	betaClient := clientset.ApiextensionsV1beta1().CustomResourceDefinitions()
-	a := NewRemapCRDVersionAction(velerotest.NewLogger(), betaClient, fakeDiscoveryHelper())
+	client := fake.NewClientBuilder().Build()
+	a := NewRemapCRDVersionAction(velerotest.NewLogger(), client, fakeDiscoveryHelper())
 
 	tests := []struct {
 		crd                     string

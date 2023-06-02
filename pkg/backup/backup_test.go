@@ -43,8 +43,6 @@ import (
 	"github.com/vmware-tanzu/velero/internal/resourcepolicies"
 	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"github.com/vmware-tanzu/velero/pkg/builder"
-	"github.com/vmware-tanzu/velero/pkg/client"
-	"github.com/vmware-tanzu/velero/pkg/discovery"
 	"github.com/vmware-tanzu/velero/pkg/itemoperation"
 	"github.com/vmware-tanzu/velero/pkg/kuberesource"
 	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
@@ -3074,7 +3072,6 @@ func (h *harness) addItems(t *testing.T, resource *test.APIResource) {
 	t.Helper()
 
 	h.DiscoveryClient.WithAPIResource(resource)
-	require.NoError(t, h.backupper.discoveryHelper.Refresh())
 
 	for _, item := range resource.Items {
 		obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(item)
@@ -3097,15 +3094,10 @@ func newHarness(t *testing.T) *harness {
 	apiServer := test.NewAPIServer(t)
 	log := logrus.StandardLogger()
 
-	discoveryHelper, err := discovery.NewHelper(apiServer.DiscoveryClient, log)
-	require.NoError(t, err)
-
 	return &harness{
 		APIServer: apiServer,
 		backupper: &kubernetesBackupper{
 			kbClient:        test.NewFakeControllerRuntimeClient(t),
-			dynamicFactory:  client.NewDynamicFactory(apiServer.DynamicClient),
-			discoveryHelper: discoveryHelper,
 
 			// unsupported
 			podCommandExecutor:        nil,

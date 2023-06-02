@@ -44,7 +44,6 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/archive"
 	"github.com/vmware-tanzu/velero/pkg/builder"
 	"github.com/vmware-tanzu/velero/pkg/client"
-	"github.com/vmware-tanzu/velero/pkg/discovery"
 	"github.com/vmware-tanzu/velero/pkg/itemoperation"
 	"github.com/vmware-tanzu/velero/pkg/kuberesource"
 	"github.com/vmware-tanzu/velero/pkg/plugin/velero"
@@ -568,7 +567,6 @@ func TestRestoreResourceFiltering(t *testing.T) {
 			for _, r := range tc.apiResources {
 				h.DiscoveryClient.WithAPIResource(r)
 			}
-			require.NoError(t, h.restorer.discoveryHelper.Refresh())
 
 			data := &Request{
 				Log:              h.log,
@@ -648,7 +646,6 @@ func TestRestoreNamespaceMapping(t *testing.T) {
 			for _, r := range tc.apiResources {
 				h.DiscoveryClient.WithAPIResource(r)
 			}
-			require.NoError(t, h.restorer.discoveryHelper.Refresh())
 
 			data := &Request{
 				Log:              h.log,
@@ -732,7 +729,6 @@ func TestRestoreResourcePriorities(t *testing.T) {
 		for _, r := range tc.apiResources {
 			h.DiscoveryClient.WithAPIResource(r)
 		}
-		require.NoError(t, h.restorer.discoveryHelper.Refresh())
 
 		data := &Request{
 			Log:              h.log,
@@ -809,7 +805,6 @@ func TestInvalidTarballContents(t *testing.T) {
 			for _, r := range tc.apiResources {
 				h.DiscoveryClient.WithAPIResource(r)
 			}
-			require.NoError(t, h.restorer.discoveryHelper.Refresh())
 
 			data := &Request{
 				Log:              h.log,
@@ -3394,14 +3389,9 @@ func newHarness(t *testing.T) *harness {
 	log := logrus.StandardLogger()
 	kbClient := velerotest.NewFakeControllerRuntimeClient(t)
 
-	discoveryHelper, err := discovery.NewHelper(apiServer.DiscoveryClient, log)
-	require.NoError(t, err)
-
 	return &harness{
 		APIServer: apiServer,
 		restorer: &kubernetesRestorer{
-			discoveryHelper:            discoveryHelper,
-			dynamicFactory:             client.NewDynamicFactory(apiServer.DynamicClient),
 			namespaceClient:            apiServer.KubeClient.CoreV1().Namespaces(),
 			resourceTerminatingTimeout: time.Minute,
 			logger:                     log,
@@ -3420,7 +3410,6 @@ func (h *harness) AddItems(t *testing.T, resource *test.APIResource) {
 	t.Helper()
 
 	h.DiscoveryClient.WithAPIResource(resource)
-	require.NoError(t, h.restorer.discoveryHelper.Refresh())
 
 	for _, item := range resource.Items {
 		obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(item)
