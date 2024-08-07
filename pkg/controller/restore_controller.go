@@ -359,6 +359,7 @@ func (r *restoreReconciler) validateAndComplete(restore *api.Restore) (backupInf
 			api.ScheduleNameLabel: restore.Spec.ScheduleName,
 		}))
 
+		// NOTE: This assumes that Backups and Restores always reside in the same namespace.
 		backupList := &api.BackupList{}
 		if err := r.kbClient.List(context.Background(), backupList, &client.ListOptions{LabelSelector: selector}); err != nil {
 			restore.Status.ValidationErrors = append(restore.Status.ValidationErrors, "Unable to list backups for schedule")
@@ -376,6 +377,7 @@ func (r *restoreReconciler) validateAndComplete(restore *api.Restore) (backupInf
 		}
 	}
 
+	// NOTE: This assumes that Backups and Restores always reside in the same namespace.
 	info, err := r.fetchBackupInfo(restore.Spec.BackupName)
 	if err != nil {
 		restore.Status.ValidationErrors = append(restore.Status.ValidationErrors, fmt.Sprintf("Error retrieving backup: %v", err))
@@ -551,6 +553,7 @@ func (r *restoreReconciler) runValidatedRestore(restore *api.Restore, info backu
 
 	restoreReq := &pkgrestore.Request{
 		Log:                      restoreLog,
+		Location:                 info.location,
 		Restore:                  restore,
 		Backup:                   info.backup,
 		PodVolumeBackups:         podVolumeBackups,

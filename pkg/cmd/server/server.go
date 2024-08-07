@@ -370,6 +370,7 @@ func newServer(f client.Factory, config serverConfig, logger *logrus.Logger) (*s
 		Scheme: scheme,
 		Cache: cache.Options{
 			DefaultNamespaces: map[string]cache.Config{
+				//NOTE(MAX): Default namespace added here. Can probably stay as it is (-> velero in every cluster ns)
 				f.Namespace(): {},
 			},
 		},
@@ -446,11 +447,12 @@ func (s *server) run() error {
 		return err
 	}
 
-	s.checkNodeAgent()
-
-	if err := s.initRepoManager(); err != nil {
-		return err
-	}
+	// We don't need the volume (former restic) features for our use case.
+	//s.checkNodeAgent()
+	//
+	//if err := s.initRepoManager(); err != nil {
+	//	return err
+	//}
 
 	if err := s.setupBeforeControllerRun(); err != nil {
 		return err
@@ -759,8 +761,6 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	if _, ok := enabledRuntimeControllers[controller.Backup]; ok {
 		backupper, err := backup.NewKubernetesBackupper(
 			s.crClient,
-			s.discoveryHelper,
-			client.NewDynamicFactory(s.dynamicClient),
 			podexec.NewPodCommandExecutor(s.kubeClientConfig, s.kubeClient.CoreV1().RESTClient()),
 			podvolume.NewBackupperFactory(
 				s.repoLocker,
@@ -841,8 +841,6 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	if _, ok := enabledRuntimeControllers[controller.BackupFinalizer]; ok {
 		backupper, err := backup.NewKubernetesBackupper(
 			s.mgr.GetClient(),
-			s.discoveryHelper,
-			client.NewDynamicFactory(s.dynamicClient),
 			podexec.NewPodCommandExecutor(s.kubeClientConfig, s.kubeClient.CoreV1().RESTClient()),
 			podvolume.NewBackupperFactory(
 				s.repoLocker,
@@ -948,10 +946,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 	if _, ok := enabledRuntimeControllers[controller.Restore]; ok {
 		restorer, err := restore.NewKubernetesRestorer(
-			s.discoveryHelper,
-			client.NewDynamicFactory(s.dynamicClient),
 			s.config.restoreResourcePriorities,
-			s.kubeClient.CoreV1().Namespaces(),
 			podvolume.NewRestorerFactory(
 				s.repoLocker,
 				s.repoEnsurer,
