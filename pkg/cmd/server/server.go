@@ -370,7 +370,7 @@ func newServer(f client.Factory, config serverConfig, logger *logrus.Logger) (*s
 		Scheme: scheme,
 		Cache: cache.Options{
 			DefaultNamespaces: map[string]cache.Config{
-				//NOTE(MAX): MIGHT THIS BE WERE WE NEED TO SET IT TO EMPTY?
+				//NOTE(MAX): Default namespace added here. Can probably stay as it is (-> velero in every cluster ns)
 				f.Namespace(): {},
 			},
 		},
@@ -447,16 +447,12 @@ func (s *server) run() error {
 		return err
 	}
 
-	// TODO: this was replaced with the 3 functions calls below
-	// We don't need the restic features for our use case.
-	//if err := s.initRestic(); err != nil {
+	// We don't need the volume (former restic) features for our use case.
+	//s.checkNodeAgent()
+	//
+	//if err := s.initRepoManager(); err != nil {
 	//	return err
 	//}
-	s.checkNodeAgent()
-
-	if err := s.initRepoManager(); err != nil {
-		return err
-	}
 
 	if err := s.setupBeforeControllerRun(); err != nil {
 		return err
@@ -743,9 +739,6 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 	// Enable BSL controller. No need to check whether it's enabled or not.
 	bslr := controller.NewBackupStorageLocationReconciler(
-		//TODO: we had this
-		// // Empty namespace so that the controller is able to retrieve Backups from any namespace.
-		//			"",
 		s.ctx,
 		s.mgr.GetClient(),
 		storage.DefaultBackupLocationInfo{
@@ -832,8 +825,6 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	backupOpsMap := itemoperationmap.NewBackupItemOperationsMap()
 	if _, ok := enabledRuntimeControllers[controller.BackupOperations]; ok {
 		r := controller.NewBackupOperationsReconciler(
-			//TODO: // Empty namespace so that the controller is able to retrieve Schedules from any namespace.
-			//			"",
 			s.logger,
 			s.mgr.GetClient(),
 			s.config.itemOperationSyncFrequency,
@@ -979,9 +970,6 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 		r := controller.NewRestoreReconciler(
 			s.ctx,
-			//TODO: check empty namespace
-			// Empty namespace so that the controller is able to retrieve Restores from any namespace.
-			//"",
 			s.namespace,
 			restorer,
 			s.mgr.GetClient(),

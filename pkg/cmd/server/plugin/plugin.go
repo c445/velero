@@ -41,10 +41,6 @@ func NewCommand(f client.Factory) *cobra.Command {
 		Hidden: true,
 		Short:  "INTERNAL COMMAND ONLY - not intended to be run directly by users",
 		Run: func(c *cobra.Command, args []string) {
-			// TODO: FIND THE EQUIVALENT
-			// We don't want to leverage the restic features for our use case (disaster recovery without restore of
-			// disk content). Disabling the plugin is not sufficient and also required changes in other code parts.
-			//RegisterRestoreItemAction("velero.io/restic", newResticRestoreItemAction(f)).
 			pluginServer = pluginServer.
 				RegisterBackupItemAction(
 					"velero.io/pv",
@@ -66,10 +62,12 @@ func NewCommand(f client.Factory) *cobra.Command {
 					"velero.io/pod",
 					newPodRestoreItemAction,
 				).
-				RegisterRestoreItemAction(
-					"velero.io/pod-volume-restore",
-					newPodVolumeRestoreItemAction(f),
-				).
+				// We don't want to leverage the volume (former restic) features for our use case (disaster recovery without restore of
+				// disk content). Disabling the plugin is not sufficient and also required changes in other code parts.
+				//RegisterRestoreItemAction(
+				//	"velero.io/pod-volume-restore",
+				//	newPodVolumeRestoreItemAction(f),
+				//).
 				// We disable all hook functionality because hooks can block our backup and restore process.
 				// Disabling the plugin is not sufficient and also required changes in other code parts.
 				//RegisterRestoreItemAction(
