@@ -19,6 +19,8 @@ package client
 import (
 	"os"
 
+	v1 "k8s.io/api/core/v1"
+
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	k8scheme "k8s.io/client-go/kubernetes/scheme"
@@ -160,6 +162,10 @@ func (f *factory) KubebuilderClient() (kbclient.Client, error) {
 		return nil, err
 	}
 	if err := snapshotv1api.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+	// We add v1 to our scheme so that we are also able to retrieve remote cluster kubeconfig secrets with this client.
+	if err := v1.AddToScheme(scheme); err != nil {
 		return nil, err
 	}
 	kubebuilderClient, err := kbclient.New(clientConfig, kbclient.Options{

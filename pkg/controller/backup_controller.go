@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/vmware-tanzu/velero/pkg/client"
 	"os"
 	"strings"
 	"time"
@@ -53,6 +54,7 @@ import (
 	"github.com/vmware-tanzu/velero/pkg/util/boolptr"
 	"github.com/vmware-tanzu/velero/pkg/util/collections"
 	"github.com/vmware-tanzu/velero/pkg/util/encode"
+	"github.com/vmware-tanzu/velero/pkg/util/kube"
 	kubeutil "github.com/vmware-tanzu/velero/pkg/util/kube"
 	"github.com/vmware-tanzu/velero/pkg/util/logging"
 	"github.com/vmware-tanzu/velero/pkg/util/results"
@@ -664,8 +666,23 @@ func (b *backupReconciler) runBackup(backup *pkgbackup.Request) error {
 
 	backupItemActionsResolver := framework.NewBackupItemActionResolverV2(actions)
 
+	// NOTE: The BackupStorageLocation name must be postfixed by the cluster name, separated by a dash.
+	clusterName := strings.Split(backup.StorageLocation.Name, "-")[0]
+	clientSet, dynamicClient, err := kube.NewClusterClients(context.Background(), b.kbClient, kbclient.ObjectKey{
+		Namespace: backup.Namespace,
+		Name:      clusterName,
+	})
+	if err != nil {
+		return err
+	}
+	discoveryHelper, err := discovery.NewHelper(clientSet, backupLog)
+	if err != nil {
+		return err
+	}
+	dynamicFactory := client.NewDynamicFactory(dynamicClient)
+
 	var fatalErrs []error
-	if err := b.backupper.BackupWithResolvers(backupLog, backup, backupFile, backupItemActionsResolver, pluginManager); err != nil {
+	if err := b.backupper.BackupWithResolvers(backupLog, backup, backupFile, backupItemActionsResolver, pluginManager, discoveryHelper, dynamicFactory); err != nil {
 		fatalErrs = append(fatalErrs, err)
 	}
 
