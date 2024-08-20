@@ -10,7 +10,7 @@ import (
 )
 
 func NewClusterClients(ctx context.Context, c client.Client, cluster client.ObjectKey) (*kubernetes.Clientset, dynamic.Interface, error) {
-	restConfig, err := remote.RESTConfig(ctx, c, cluster)
+	restConfig, err := remote.RESTConfig(ctx, "velero", c, cluster)
 	if err != nil {
 		return nil, nil, err
 	}

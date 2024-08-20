@@ -171,16 +171,16 @@ func (kr *kubernetesRestorer) RestoreWithResolvers(
 ) (results.Result, results.Result) {
 	// NOTE: This requires that the BackupStorageLocation must always be named exactly as the target cluster.
 	clusterName := req.Location.Name
-	clientSet, dynamicClient, err := kube.NewClusterClients(go_context.Background(), kr.client, kbclient.ObjectKey{
+	clientSet, dynamicClient, err := kube.NewClusterClients(go_context.Background(), kr.kbClient, crclient.ObjectKey{
 		Namespace: clusterName,
 		Name:      clusterName,
 	})
 	if err != nil {
-		return Result{}, Result{Velero: []string{err.Error()}}
+		return results.Result{}, results.Result{Velero: []string{err.Error()}}
 	}
 	discoveryHelper, err := discovery.NewHelper(clientSet, kr.logger)
 	if err != nil {
-		return Result{}, Result{Velero: []string{err.Error()}}
+		return results.Result{}, results.Result{Velero: []string{err.Error()}}
 	}
 	dynamicFactory := client.NewDynamicFactory(dynamicClient)
 	namespaceClient := clientSet.CoreV1().Namespaces()

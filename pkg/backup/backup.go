@@ -217,7 +217,7 @@ func (kb *kubernetesBackupper) BackupWithResolvers(
 ) error {
 	// NOTE: This requires that the BackupStorageLocation must always be named exactly as the target cluster.
 	clusterName := backupRequest.StorageLocation.Name
-	clientSet, dynamicClient, err := kube.NewClusterClients(context.Background(), kb.client, kbclient.ObjectKey{
+	clientSet, dynamicClient, err := kube.NewClusterClients(context.Background(), kb.kbClient, kbclient.ObjectKey{
 		Namespace: backupRequest.Namespace,
 		Name:      clusterName,
 	})
@@ -620,6 +620,22 @@ func (kb *kubernetesBackupper) FinalizeBackup(
 	backupItemActionResolver framework.BackupItemActionResolverV2,
 	asyncBIAOperations []*itemoperation.BackupOperation,
 ) error {
+	// NOTE: This requires that the BackupStorageLocation must always be named exactly as the target cluster.
+	clusterName := backupRequest.StorageLocation.Name
+	clientSet, dynamicClient, err := kube.NewClusterClients(context.Background(), kb.kbClient, kbclient.ObjectKey{
+		Namespace: backupRequest.Namespace,
+		Name:      clusterName,
+	})
+	if err != nil {
+		return err
+	}
+	discoveryHelper, err := discovery.NewHelper(clientSet, log)
+	if err != nil {
+		return err
+	}
+
+	dynamicFactory := client.NewDynamicFactory(dynamicClient)
+
 	gzw := gzip.NewWriter(outBackupFile)
 	defer gzw.Close()
 	tw := tar.NewWriter(gzw)
@@ -633,7 +649,7 @@ func (kb *kubernetesBackupper) FinalizeBackup(
 	defer gzr.Close()
 	tr := tar.NewReader(gzr)
 
-	backupRequest.ResolvedActions, err = backupItemActionResolver.ResolveActions(kb.discoveryHelper, log)
+	backupRequest.ResolvedActions, err = backupItemActionResolver.ResolveActions(discoveryHelper, log)
 	if err != nil {
 		log.WithError(errors.WithStack(err)).Debugf("Error from backupItemActionResolver.ResolveActions")
 		return err
@@ -652,8 +668,8 @@ func (kb *kubernetesBackupper) FinalizeBackup(
 	collector := &itemCollector{
 		log:                   log,
 		backupRequest:         backupRequest,
-		discoveryHelper:       kb.discoveryHelper,
-		dynamicFactory:        kb.dynamicFactory,
+		discoveryHelper:       discoveryHelper,
+		dynamicFactory:        dynamicFactory,
 		cohabitatingResources: cohabitatingResources(),
 		dir:                   tempDir,
 		pageSize:              kb.clientPageSize,
@@ -672,9 +688,9 @@ func (kb *kubernetesBackupper) FinalizeBackup(
 	itemBackupper := &itemBackupper{
 		backupRequest:            backupRequest,
 		tarWriter:                tw,
-		dynamicFactory:           kb.dynamicFactory,
+		dynamicFactory:           dynamicFactory,
 		kbClient:                 kb.kbClient,
-		discoveryHelper:          kb.discoveryHelper,
+		discoveryHelper:          discoveryHelper,
 		itemHookHandler:          &hook.NoOpItemHookHandler{},
 		podVolumeSnapshotTracker: podvolume.NewTracker(),
 		hookTracker:              hook.NewHookTracker(),

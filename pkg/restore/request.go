@@ -52,7 +52,9 @@ func resourceKey(obj runtime.Object) string {
 type Request struct {
 	*velerov1api.Restore
 
-	Log                      logrus.FieldLogger
+	Log logrus.FieldLogger
+	// TODO: double check
+	Location                 *velerov1api.BackupStorageLocation
 	Backup                   *velerov1api.Backup
 	PodVolumeBackups         []*velerov1api.PodVolumeBackup
 	VolumeSnapshots          []*volume.Snapshot
