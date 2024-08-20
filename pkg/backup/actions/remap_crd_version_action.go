@@ -124,7 +124,7 @@ func (a *RemapCRDVersionAction) Execute(item runtime.Unstructured, backup *v1.Ba
 			Name:      clusterName,
 		}
 		// a.client is the management cluster client to get kubeconfig secrets.
-		restConfig, err := remote.RESTConfig(context.Background(), a.client, cluster)
+		restConfig, err := remote.RESTConfig(context.Background(), "velero", a.client, cluster)
 		if err != nil {
 			return nil, nil, err
 		}
