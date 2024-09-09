@@ -450,8 +450,7 @@ func (s *server) run() error {
 		return err
 	}
 
-	// We don't need the volume (former restic) features for our use case. TODO: check
-
+	// We don't need the volume (former restic) features for our use case.
 	//s.checkNodeAgent()
 	//
 	//if err := s.initRepoManager(); err != nil {
@@ -479,9 +478,10 @@ func (s *server) setupBeforeControllerRun() error {
 
 	markInProgressCRsFailed(s.ctx, client, s.namespace, s.logger)
 
-	if err := setDefaultBackupLocation(s.ctx, client, s.namespace, s.config.defaultBackupLocation, s.logger); err != nil {
-		return err
-	}
+	// We handle this ourselves in our own controller (also this one is limited to one namespace), skip it
+	//if err := setDefaultBackupLocation(s.ctx, client, s.namespace, s.config.defaultBackupLocation, s.logger); err != nil {
+	//	return err
+	//}
 	return nil
 }
 
@@ -902,7 +902,9 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 		backupSyncReconciler := controller.NewBackupSyncReconciler(
 			s.mgr.GetClient(),
-			s.namespace,
+			// empty namespace so the controller is able to retrieve from any namespace
+			//s.namespace,
+			"",
 			syncPeriod,
 			newPluginManager,
 			backupStoreGetter,
@@ -917,7 +919,9 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	if _, ok := enabledRuntimeControllers[controller.RestoreOperations]; ok {
 		r := controller.NewRestoreOperationsReconciler(
 			s.logger,
-			s.namespace,
+			// empty namespace so the controller is able to retrieve from any namespace
+			//s.namespace,
+			"",
 			s.mgr.GetClient(),
 			s.config.itemOperationSyncFrequency,
 			newPluginManager,
@@ -987,12 +991,11 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 		cmd.CheckError(err)
 
-		// TODO: check this
-		// // Empty namespace so that the controller is able to retrieve Restores from any namespace.
-		//			"",
 		r := controller.NewRestoreReconciler(
 			s.ctx,
-			s.namespace,
+			// empty namespace so the controller is able to retrieve from any namespace
+			//s.namespace,
+			"",
 			restorer,
 			s.mgr.GetClient(),
 			s.logger,
@@ -1012,7 +1015,8 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	}
 
 	if _, ok := enabledRuntimeControllers[controller.Schedule]; ok {
-		if err := controller.NewScheduleReconciler(s.namespace, s.logger, s.mgr.GetClient(), s.metrics, s.config.scheduleSkipImmediately).SetupWithManager(s.mgr); err != nil {
+		// empty namespace so the controller is able to retrieve Schedules from any namespace
+		if err := controller.NewScheduleReconciler("", s.logger, s.mgr.GetClient(), s.metrics, s.config.scheduleSkipImmediately).SetupWithManager(s.mgr); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.Schedule)
 		}
 	}
@@ -1032,7 +1036,9 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	if _, ok := enabledRuntimeControllers[controller.RestoreFinalizer]; ok {
 		if err := controller.NewRestoreFinalizerReconciler(
 			s.logger,
-			s.namespace,
+			// empty namespace so the controller is able to retrieve from any namespace
+			//s.namespace,
+			"",
 			s.mgr.GetClient(),
 			newPluginManager,
 			backupStoreGetter,
@@ -1096,7 +1102,8 @@ func markInProgressCRsFailed(ctx context.Context, client ctrlclient.Client, name
 
 func markInProgressBackupsFailed(ctx context.Context, client ctrlclient.Client, namespace string, log logrus.FieldLogger) {
 	backups := &velerov1api.BackupList{}
-	if err := client.List(ctx, backups, &ctrlclient.ListOptions{Namespace: namespace}); err != nil {
+	// Set namespace to "", to get the backups from all namespaces
+	if err := client.List(ctx, backups, &ctrlclient.ListOptions{Namespace: ""}); err != nil {
 		log.WithError(errors.WithStack(err)).Error("failed to list backups")
 		return
 	}
@@ -1121,7 +1128,8 @@ func markInProgressBackupsFailed(ctx context.Context, client ctrlclient.Client, 
 
 func markInProgressRestoresFailed(ctx context.Context, client ctrlclient.Client, namespace string, log logrus.FieldLogger) {
 	restores := &velerov1api.RestoreList{}
-	if err := client.List(ctx, restores, &ctrlclient.ListOptions{Namespace: namespace}); err != nil {
+	// Set namespace to "", to get the restores from all namespaces
+	if err := client.List(ctx, restores, &ctrlclient.ListOptions{Namespace: ""}); err != nil {
 		log.WithError(errors.WithStack(err)).Error("failed to list restores")
 		return
 	}

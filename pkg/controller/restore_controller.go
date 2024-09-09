@@ -378,7 +378,7 @@ func (r *restoreReconciler) validateAndComplete(restore *api.Restore) (backupInf
 	}
 
 	// NOTE: This assumes that Backups and Restores always reside in the same namespace. TODO: check
-	info, err := r.fetchBackupInfo(restore.Spec.BackupName)
+	info, err := r.fetchBackupInfo(restore.Spec.BackupName, restore.Namespace)
 	if err != nil {
 		restore.Status.ValidationErrors = append(restore.Status.ValidationErrors, fmt.Sprintf("Error retrieving backup: %v", err))
 		return backupInfo{}, nil
@@ -452,9 +452,10 @@ func mostRecentCompletedBackup(backups []api.Backup) api.Backup {
 
 // fetchBackupInfo checks the backup lister for a backup that matches the given name. If it doesn't
 // find it, it returns an error.
-// TODO: check because ns was passed in the past
-func (r *restoreReconciler) fetchBackupInfo(backupName string) (backupInfo, error) {
-	return fetchBackupInfoInternal(r.kbClient, r.namespace, backupName)
+// NOTE: We adjust fetchBackupInfo to also accept a namespace explicitly, which will be the namespace of the
+// found Restore. As a corollary, this means that Restores and corresponding Backups must reside in the same namespace
+func (r *restoreReconciler) fetchBackupInfo(backupName string, namespace string) (backupInfo, error) {
+	return fetchBackupInfoInternal(r.kbClient, namespace, backupName)
 }
 
 func fetchBackupInfoInternal(kbClient client.Client, namespace, backupName string) (backupInfo, error) {
@@ -711,7 +712,7 @@ func (r *restoreReconciler) deleteExternalResources(restore *api.Restore) error 
 		return nil
 	}
 
-	backupInfo, err := r.fetchBackupInfo(restore.Spec.BackupName)
+	backupInfo, err := r.fetchBackupInfo(restore.Spec.BackupName, r.namespace)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			r.logger.Errorf("got not found error: %v, skip deleting the restore files in object storage", err)
