@@ -1,5 +1,5 @@
 # Adds support for prow-like commands
-# Uses .github/labels.yaml to define areas and kinds
+# Uses .github-removed/labels.yaml to define areas and kinds
 name: "Prow github actions"
 on:
   issue_comment:

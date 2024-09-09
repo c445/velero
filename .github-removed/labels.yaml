@@ -1,4 +1,4 @@
-# This file is used by [prow github action](https://github.com/jpmcb/prow-github-actions/) in .github/workflows/prow-action.yml.
+# This file is used by [prow github action](https://github.com/jpmcb/prow-github-actions/) in .github-removed/workflows/prow-action.yml.
 # This file only has values for kind and area commands.
 area:
   - CLI

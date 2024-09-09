@@ -15,5 +15,5 @@ jobs:
       - name: Set the author of a PR as the assignee
         uses: kentaro-m/auto-assign-action@v2.0.0
         with:
-          configuration-path: ".github/auto-assignees.yml"
+          configuration-path: ".github-removed/auto-assignees.yml"
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
