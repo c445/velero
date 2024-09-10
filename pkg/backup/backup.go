@@ -26,6 +26,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -215,8 +216,8 @@ func (kb *kubernetesBackupper) BackupWithResolvers(
 	backupItemActionResolver framework.BackupItemActionResolverV2,
 	volumeSnapshotterGetter VolumeSnapshotterGetter,
 ) error {
-	// NOTE: This requires that the BackupStorageLocation must always be named exactly as the target cluster.
-	clusterName := backupRequest.StorageLocation.Name
+	// NOTE: The BackupStorageLocation name must be postfixed by the cluster name, separated by a dash.
+	clusterName := strings.Split(backupRequest.StorageLocation.Name, "-")[0]
 	clientSet, dynamicClient, err := kube.NewClusterClients(context.Background(), kb.kbClient, kbclient.ObjectKey{
 		Namespace: backupRequest.Namespace,
 		Name:      clusterName,
@@ -620,8 +621,8 @@ func (kb *kubernetesBackupper) FinalizeBackup(
 	backupItemActionResolver framework.BackupItemActionResolverV2,
 	asyncBIAOperations []*itemoperation.BackupOperation,
 ) error {
-	// NOTE: This requires that the BackupStorageLocation must always be named exactly as the target cluster.
-	clusterName := backupRequest.StorageLocation.Name
+	// NOTE: The BackupStorageLocation name must be postfixed by the cluster name, separated by a dash.
+	clusterName := strings.Split(backupRequest.StorageLocation.Name, "-")[0]
 	clientSet, dynamicClient, err := kube.NewClusterClients(context.Background(), kb.kbClient, kbclient.ObjectKey{
 		Namespace: backupRequest.Namespace,
 		Name:      clusterName,
