@@ -113,6 +113,9 @@ const (
 
 	defaultMaxConcurrentK8SConnections = 30
 	defaultDisableInformerCache        = false
+
+	// we want to be able to define how many concurrent reconciles we want to run for each controller
+	defaultMaxConcurrentReconciles = 1
 )
 
 type serverConfig struct {
@@ -140,6 +143,7 @@ type serverConfig struct {
 	disableInformerCache                                                    bool
 	scheduleSkipImmediately                                                 bool
 	maintenanceCfg                                                          repository.MaintenanceConfig
+	defaultMaxConcurrentReconciles                                          int
 }
 
 func NewCommand(f client.Factory) *cobra.Command {
@@ -174,6 +178,7 @@ func NewCommand(f client.Factory) *cobra.Command {
 			maintenanceCfg: repository.MaintenanceConfig{
 				KeepLatestMaitenanceJobs: repository.DefaultKeepLatestMaitenanceJobs,
 			},
+			defaultMaxConcurrentReconciles: defaultMaxConcurrentReconciles,
 		}
 	)
 
@@ -252,6 +257,7 @@ func NewCommand(f client.Factory) *cobra.Command {
 	command.Flags().StringVar(&config.maintenanceCfg.MemRequest, "maintenance-job-mem-request", config.maintenanceCfg.MemRequest, "Memory request for maintenance job. Default is no limit.")
 	command.Flags().StringVar(&config.maintenanceCfg.CPULimit, "maintenance-job-cpu-limit", config.maintenanceCfg.CPULimit, "CPU limit for maintenance job. Default is no limit.")
 	command.Flags().StringVar(&config.maintenanceCfg.MemLimit, "maintenance-job-mem-limit", config.maintenanceCfg.MemLimit, "Memory limit for maintenance job. Default is no limit.")
+	command.Flags().IntVar(&config.defaultMaxConcurrentReconciles, "default-max-concurrent-reconciles", config.defaultMaxConcurrentReconciles, "How many concurrent reconciles should be handled by a worker at max by default.")
 
 	// maintenance job log setting inherited from velero server
 	config.maintenanceCfg.FormatFlag = config.formatFlag
@@ -757,7 +763,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 		backupStoreGetter,
 		s.logger,
 	)
-	if err := bslr.SetupWithManager(s.mgr); err != nil {
+	if err := bslr.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 		s.logger.Fatal(err, "unable to create controller", "controller", controller.BackupStorageLocation)
 	}
 
@@ -810,7 +816,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.config.maxConcurrentK8SConnections,
 			s.config.defaultSnapshotMoveData,
 			s.crClient,
-		).SetupWithManager(s.mgr); err != nil {
+		).SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.Backup)
 		}
 	}
@@ -830,7 +836,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			backupStoreGetter,
 			s.credentialFileStore,
 			s.repoEnsurer,
-		).SetupWithManager(s.mgr); err != nil {
+		).SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.BackupDeletion)
 		}
 	}
@@ -846,7 +852,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.metrics,
 			backupOpsMap,
 		)
-		if err := r.SetupWithManager(s.mgr); err != nil {
+		if err := r.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.BackupOperations)
 		}
 	}
@@ -883,13 +889,13 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.logger,
 			s.metrics,
 		)
-		if err := r.SetupWithManager(s.mgr); err != nil {
+		if err := r.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.BackupFinalizer)
 		}
 	}
 
 	if _, ok := enabledRuntimeControllers[controller.BackupRepo]; ok {
-		if err := controller.NewBackupRepoReconciler(s.namespace, s.logger, s.mgr.GetClient(), s.config.repoMaintenanceFrequency, s.repoManager).SetupWithManager(s.mgr); err != nil {
+		if err := controller.NewBackupRepoReconciler(s.namespace, s.logger, s.mgr.GetClient(), s.config.repoMaintenanceFrequency, s.repoManager).SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.BackupRepo)
 		}
 	}
@@ -910,7 +916,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			backupStoreGetter,
 			s.logger,
 		)
-		if err := backupSyncReconciler.SetupWithManager(s.mgr); err != nil {
+		if err := backupSyncReconciler.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, " unable to create controller ", "controller ", controller.BackupSync)
 		}
 	}
@@ -929,7 +935,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.metrics,
 			restoreOpsMap,
 		)
-		if err := r.SetupWithManager(s.mgr); err != nil {
+		if err := r.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.RestoreOperations)
 		}
 	}
@@ -944,14 +950,14 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			backupOpsMap,
 			restoreOpsMap,
 		)
-		if err := r.SetupWithManager(s.mgr); err != nil {
+		if err := r.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.DownloadRequest)
 		}
 	}
 
 	if _, ok := enabledRuntimeControllers[controller.GarbageCollection]; ok {
 		r := controller.NewGCReconciler(s.logger, s.mgr.GetClient(), s.config.garbageCollectionFrequency)
-		if err := r.SetupWithManager(s.mgr); err != nil {
+		if err := r.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.GarbageCollection)
 		}
 	}
@@ -1009,26 +1015,31 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.crClient,
 		)
 
-		if err = r.SetupWithManager(s.mgr); err != nil {
+		if err = r.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "fail to create controller", "controller", controller.Restore)
 		}
 	}
 
 	if _, ok := enabledRuntimeControllers[controller.Schedule]; ok {
 		// empty namespace so the controller is able to retrieve Schedules from any namespace
-		if err := controller.NewScheduleReconciler("", s.logger, s.mgr.GetClient(), s.metrics, s.config.scheduleSkipImmediately).SetupWithManager(s.mgr); err != nil {
+		if err := controller.NewScheduleReconciler("", s.logger, s.mgr.GetClient(), s.metrics, s.config.scheduleSkipImmediately).SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.Schedule)
 		}
 	}
 
 	if _, ok := enabledRuntimeControllers[controller.ServerStatusRequest]; ok {
+		// CaaS: upstream default is 10, we only change this in case we want more than 10 concurrent reconciles
+		maxConcurrentReconciles := 10
+		if s.config.defaultMaxConcurrentReconciles > 10 {
+			maxConcurrentReconciles = s.config.defaultMaxConcurrentReconciles
+		}
 		if err := controller.NewServerStatusRequestReconciler(
 			s.ctx,
 			s.mgr.GetClient(),
 			s.pluginRegistry,
 			clock.RealClock{},
 			s.logger,
-		).SetupWithManager(s.mgr); err != nil {
+		).SetupWithManager(s.mgr, maxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.ServerStatusRequest)
 		}
 	}
@@ -1045,7 +1056,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.metrics,
 			s.crClient,
 			multiHookTracker,
-		).SetupWithManager(s.mgr); err != nil {
+		).SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.RestoreFinalizer)
 		}
 	}

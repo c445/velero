@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"strings"
 	"time"
 
@@ -189,7 +190,7 @@ func (r *backupStorageLocationReconciler) logReconciledPhase(defaultFound bool, 
 	}
 }
 
-func (r *backupStorageLocationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *backupStorageLocationReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	g := kube.NewPeriodicalEnqueueSource(
 		r.log,
 		mgr.GetClient(),
@@ -204,6 +205,9 @@ func (r *backupStorageLocationReconciler) SetupWithManager(mgr ctrl.Manager) err
 	return ctrl.NewControllerManagedBy(mgr).
 		// As the "status.LastValidationTime" field is always updated, this triggers new reconciling process, skip the update event that include no spec change to avoid the reconcile loop
 		For(&velerov1api.BackupStorageLocation{}, builder.WithPredicates(kube.SpecChangePredicate{})).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).
 		WatchesRawSource(g, nil, builder.WithPredicates(gp)).
 		Complete(r)
 }

@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"time"
 
 	jsonpatch "github.com/evanphx/json-patch/v5"
@@ -99,11 +100,14 @@ func NewBackupDeletionReconciler(
 	}
 }
 
-func (r *backupDeletionReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *backupDeletionReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	// Make sure the expired requests can be deleted eventually
 	s := kube.NewPeriodicalEnqueueSource(r.logger, mgr.GetClient(), &velerov1api.DeleteBackupRequestList{}, time.Hour, kube.PeriodicalEnqueueSourceOption{})
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&velerov1api.DeleteBackupRequest{}).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).
 		WatchesRawSource(s, nil).
 		Complete(r)
 }

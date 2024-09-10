@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"time"
 
 	"github.com/pkg/errors"
@@ -217,7 +218,7 @@ func (r *downloadRequestReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{}, nil
 }
 
-func (r *downloadRequestReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *downloadRequestReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	downloadRequestSource := kube.NewPeriodicalEnqueueSource(r.log, mgr.GetClient(),
 		&velerov1api.DownloadRequestList{}, defaultDownloadRequestSyncPeriod, kube.PeriodicalEnqueueSourceOption{})
 	downloadRequestPredicates := kube.NewGenericEventPredicate(func(object kbclient.Object) bool {
@@ -230,6 +231,9 @@ func (r *downloadRequestReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&velerov1api.DownloadRequest{}).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).
 		WatchesRawSource(downloadRequestSource, nil, builder.WithPredicates(downloadRequestPredicates)).
 		Complete(r)
 }

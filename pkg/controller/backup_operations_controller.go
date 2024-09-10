@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"time"
 
 	v2 "github.com/vmware-tanzu/velero/pkg/plugin/velero/backupitemaction/v2"
@@ -83,7 +84,7 @@ func NewBackupOperationsReconciler(
 	return abor
 }
 
-func (c *backupOperationsReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (c *backupOperationsReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	s := kube.NewPeriodicalEnqueueSource(c.logger, mgr.GetClient(), &velerov1api.BackupList{}, c.frequency, kube.PeriodicalEnqueueSourceOption{})
 	gp := kube.NewGenericEventPredicate(func(object client.Object) bool {
 		backup := object.(*velerov1api.Backup)
@@ -92,6 +93,9 @@ func (c *backupOperationsReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	})
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&velerov1api.Backup{}, builder.WithPredicates(kube.FalsePredicate{})).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).
 		WatchesRawSource(s, nil, builder.WithPredicates(gp)).
 		Complete(c)
 }

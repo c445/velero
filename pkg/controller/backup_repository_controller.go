@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"reflect"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"time"
 
 	"github.com/pkg/errors"
@@ -68,11 +69,14 @@ func NewBackupRepoReconciler(namespace string, logger logrus.FieldLogger, client
 	return c
 }
 
-func (r *BackupRepoReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *BackupRepoReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	s := kube.NewPeriodicalEnqueueSource(r.logger, mgr.GetClient(), &velerov1api.BackupRepositoryList{}, repoSyncPeriod, kube.PeriodicalEnqueueSourceOption{})
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&velerov1api.BackupRepository{}, builder.WithPredicates(kube.SpecChangePredicate{})).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).
 		WatchesRawSource(s, nil).
 		Watches(&velerov1api.BackupStorageLocation{}, kube.EnqueueRequestsFromMapUpdateFunc(r.invalidateBackupReposForBSL),
 			builder.WithPredicates(

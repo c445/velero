@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sync"
 	"time"
 
@@ -82,9 +83,12 @@ func NewRestoreFinalizerReconciler(
 	}
 }
 
-func (r *restoreFinalizerReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *restoreFinalizerReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&velerov1api.Restore{}).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).
 		Complete(r)
 }
 

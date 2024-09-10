@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"time"
 
 	snapshotv1api "github.com/kubernetes-csi/external-snapshotter/client/v7/apis/volumesnapshot/v1"
@@ -332,7 +333,7 @@ func (b *backupSyncReconciler) filterBackupOwnerReferences(ctx context.Context, 
 }
 
 // SetupWithManager is used to setup controller and its watching sources.
-func (b *backupSyncReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (b *backupSyncReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	backupSyncSource := kube.NewPeriodicalEnqueueSource(
 		b.logger,
 		mgr.GetClient(),
@@ -351,6 +352,9 @@ func (b *backupSyncReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		// Filter all BSL events, because this controller is supposed to run periodically, not by event.
 		For(&velerov1api.BackupStorageLocation{}, builder.WithPredicates(kube.FalsePredicate{})).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).
 		WatchesRawSource(backupSyncSource, nil, builder.WithPredicates(gp)).
 		Complete(b)
 }

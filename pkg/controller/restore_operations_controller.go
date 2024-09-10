@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"time"
 
 	"github.com/pkg/errors"
@@ -81,7 +82,7 @@ func NewRestoreOperationsReconciler(
 	return abor
 }
 
-func (r *restoreOperationsReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *restoreOperationsReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	s := kube.NewPeriodicalEnqueueSource(r.logger, mgr.GetClient(), &velerov1api.RestoreList{}, r.frequency, kube.PeriodicalEnqueueSourceOption{})
 	gp := kube.NewGenericEventPredicate(func(object client.Object) bool {
 		restore := object.(*velerov1api.Restore)
@@ -90,6 +91,9 @@ func (r *restoreOperationsReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	})
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&velerov1api.Restore{}, builder.WithPredicates(kube.FalsePredicate{})).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).
 		WatchesRawSource(s, nil, builder.WithPredicates(gp)).
 		Complete(r)
 }
