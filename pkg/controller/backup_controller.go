@@ -798,7 +798,6 @@ func recordBackupMetrics(log logrus.FieldLogger, backup *velerov1api.Backup, bac
 
 		if backup.Status.Progress != nil {
 			serverMetrics.RegisterBackupItemsTotalGauge(backupScheduleName, backup.Status.Progress.TotalItems)
-			serverMetrics.RegisterBackupItemsBackedUpGauge(backupScheduleName, backup.Status.Progress.ItemsBackedUp)
 		}
 		serverMetrics.RegisterBackupItemsErrorsGauge(backupScheduleName, backup.Status.Errors)
 
