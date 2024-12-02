@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"time"
 
 	v2 "github.com/vmware-tanzu/velero/pkg/plugin/velero/backupitemaction/v2"
@@ -85,18 +86,20 @@ func NewBackupOperationsReconciler(
 }
 
 func (c *backupOperationsReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
-	s := kube.NewPeriodicalEnqueueSource(c.logger, mgr.GetClient(), &velerov1api.BackupList{}, c.frequency, kube.PeriodicalEnqueueSourceOption{})
 	gp := kube.NewGenericEventPredicate(func(object client.Object) bool {
 		backup := object.(*velerov1api.Backup)
 		return (backup.Status.Phase == velerov1api.BackupPhaseWaitingForPluginOperations ||
 			backup.Status.Phase == velerov1api.BackupPhaseWaitingForPluginOperationsPartiallyFailed)
+	})
+	s := kube.NewPeriodicalEnqueueSource(c.logger, mgr.GetClient(), &velerov1api.BackupList{}, c.frequency, kube.PeriodicalEnqueueSourceOption{
+		Predicates: []predicate.Predicate{gp},
 	})
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&velerov1api.Backup{}, builder.WithPredicates(kube.FalsePredicate{})).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).
-		WatchesRawSource(s, nil, builder.WithPredicates(gp)).
+		WatchesRawSource(s).
 		Complete(c)
 }
 

@@ -92,7 +92,7 @@ func (c *gcReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconcile
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).
-		WatchesRawSource(s, nil).
+		WatchesRawSource(s).
 		Complete(c)
 }
 

@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"time"
 
 	"github.com/pkg/errors"
@@ -27,7 +28,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clocks "k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	kbclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
@@ -219,8 +219,6 @@ func (r *downloadRequestReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 }
 
 func (r *downloadRequestReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
-	downloadRequestSource := kube.NewPeriodicalEnqueueSource(r.log, mgr.GetClient(),
-		&velerov1api.DownloadRequestList{}, defaultDownloadRequestSyncPeriod, kube.PeriodicalEnqueueSourceOption{})
 	downloadRequestPredicates := kube.NewGenericEventPredicate(func(object kbclient.Object) bool {
 		downloadRequest := object.(*velerov1api.DownloadRequest)
 		if downloadRequest.Status != (velerov1api.DownloadRequestStatus{}) && downloadRequest.Status.Expiration != nil {
@@ -228,12 +226,16 @@ func (r *downloadRequestReconciler) SetupWithManager(mgr ctrl.Manager, maxConcur
 		}
 		return true
 	})
+	downloadRequestSource := kube.NewPeriodicalEnqueueSource(r.log, mgr.GetClient(),
+		&velerov1api.DownloadRequestList{}, defaultDownloadRequestSyncPeriod, kube.PeriodicalEnqueueSourceOption{
+			Predicates: []predicate.Predicate{downloadRequestPredicates},
+		})
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&velerov1api.DownloadRequest{}).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).
-		WatchesRawSource(downloadRequestSource, nil, builder.WithPredicates(downloadRequestPredicates)).
+		WatchesRawSource(downloadRequestSource).
 		Complete(r)
 }

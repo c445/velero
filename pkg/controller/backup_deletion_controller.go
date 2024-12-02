@@ -108,7 +108,7 @@ func (r *backupDeletionReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurr
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).
-		WatchesRawSource(s, nil).
+		WatchesRawSource(s).
 		Complete(r)
 }
 

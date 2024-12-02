@@ -77,7 +77,7 @@ func (r *BackupRepoReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentR
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).
-		WatchesRawSource(s, nil).
+		WatchesRawSource(s).
 		Watches(&velerov1api.BackupStorageLocation{}, kube.EnqueueRequestsFromMapUpdateFunc(r.invalidateBackupReposForBSL),
 			builder.WithPredicates(
 				// When BSL updates, check if the backup repositories need to be invalidated

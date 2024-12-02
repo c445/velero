@@ -85,7 +85,7 @@ func (c *scheduleReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentRec
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).
-		WatchesRawSource(s, nil).
+		WatchesRawSource(s).
 		Complete(c)
 }
 

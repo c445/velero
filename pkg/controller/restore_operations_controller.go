@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"time"
 
 	"github.com/pkg/errors"
@@ -83,18 +84,20 @@ func NewRestoreOperationsReconciler(
 }
 
 func (r *restoreOperationsReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
-	s := kube.NewPeriodicalEnqueueSource(r.logger, mgr.GetClient(), &velerov1api.RestoreList{}, r.frequency, kube.PeriodicalEnqueueSourceOption{})
 	gp := kube.NewGenericEventPredicate(func(object client.Object) bool {
 		restore := object.(*velerov1api.Restore)
 		return (restore.Status.Phase == velerov1api.RestorePhaseWaitingForPluginOperations ||
 			restore.Status.Phase == velerov1api.RestorePhaseWaitingForPluginOperationsPartiallyFailed)
+	})
+	s := kube.NewPeriodicalEnqueueSource(r.logger, mgr.GetClient(), &velerov1api.RestoreList{}, r.frequency, kube.PeriodicalEnqueueSourceOption{
+		Predicates: []predicate.Predicate{gp},
 	})
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&velerov1api.Restore{}, builder.WithPredicates(kube.FalsePredicate{})).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).
-		WatchesRawSource(s, nil, builder.WithPredicates(gp)).
+		WatchesRawSource(s).
 		Complete(r)
 }
 
