@@ -29,7 +29,7 @@ fi
 
 OUTPUT_ISSUE_FILE="$1"
 if [[ -z "${OUTPUT_ISSUE_FILE}" ]]; then
-  OUTPUT_ISSUE_FILE=${VELERO_ROOT}/.github/ISSUE_TEMPLATE/bug_report.md
+  OUTPUT_ISSUE_FILE=${VELERO_ROOT}/.github-removed/ISSUE_TEMPLATE/bug_report.md
 fi
 
 ${BIN}/issue-tmpl-gen ${OUTPUT_ISSUE_FILE} 

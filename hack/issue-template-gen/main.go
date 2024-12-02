@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // This code renders the IssueTemplate string in pkg/cmd/cli/bug/bug.go to
-// .github/ISSUE_TEMPLATE/bug_report.md via the hack/update-generated-issue-template.sh script.
+// .github-removed/ISSUE_TEMPLATE/bug_report.md via the hack/update-generated-issue-template.sh script.
 
 package main
 

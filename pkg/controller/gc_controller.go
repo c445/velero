@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"time"
 
 	"github.com/pkg/errors"
@@ -74,7 +75,7 @@ func NewGCReconciler(
 // GCController only watches on CreateEvent for ensuring every new backup will be taken care of.
 // Other Events will be filtered to decrease the number of reconcile call. Especially UpdateEvent must be filtered since we removed
 // the backup status as the sub-resource of backup in v1.9, every change on it will be treated as UpdateEvent and trigger reconcile call.
-func (c *gcReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (c *gcReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	s := kube.NewPeriodicalEnqueueSource(c.logger, mgr.GetClient(), &velerov1api.BackupList{}, c.frequency, kube.PeriodicalEnqueueSourceOption{})
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&velerov1api.Backup{}, builder.WithPredicates(predicate.Funcs{
@@ -88,7 +89,10 @@ func (c *gcReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return false
 			},
 		})).
-		WatchesRawSource(s, nil).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).
+		WatchesRawSource(s).
 		Complete(c)
 }
 

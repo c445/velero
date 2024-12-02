@@ -113,6 +113,9 @@ const (
 
 	defaultMaxConcurrentK8SConnections = 30
 	defaultDisableInformerCache        = false
+
+	// we want to be able to define how many concurrent reconciles we want to run for each controller
+	defaultMaxConcurrentReconciles = 1
 )
 
 type serverConfig struct {
@@ -140,6 +143,7 @@ type serverConfig struct {
 	disableInformerCache                                                    bool
 	scheduleSkipImmediately                                                 bool
 	maintenanceCfg                                                          repository.MaintenanceConfig
+	defaultMaxConcurrentReconciles                                          int
 }
 
 func NewCommand(f client.Factory) *cobra.Command {
@@ -174,6 +178,7 @@ func NewCommand(f client.Factory) *cobra.Command {
 			maintenanceCfg: repository.MaintenanceConfig{
 				KeepLatestMaitenanceJobs: repository.DefaultKeepLatestMaitenanceJobs,
 			},
+			defaultMaxConcurrentReconciles: defaultMaxConcurrentReconciles,
 		}
 	)
 
@@ -252,6 +257,7 @@ func NewCommand(f client.Factory) *cobra.Command {
 	command.Flags().StringVar(&config.maintenanceCfg.MemRequest, "maintenance-job-mem-request", config.maintenanceCfg.MemRequest, "Memory request for maintenance job. Default is no limit.")
 	command.Flags().StringVar(&config.maintenanceCfg.CPULimit, "maintenance-job-cpu-limit", config.maintenanceCfg.CPULimit, "CPU limit for maintenance job. Default is no limit.")
 	command.Flags().StringVar(&config.maintenanceCfg.MemLimit, "maintenance-job-mem-limit", config.maintenanceCfg.MemLimit, "Memory limit for maintenance job. Default is no limit.")
+	command.Flags().IntVar(&config.defaultMaxConcurrentReconciles, "default-max-concurrent-reconciles", config.defaultMaxConcurrentReconciles, "How many concurrent reconciles should be handled by a worker at max by default.")
 
 	// maintenance job log setting inherited from velero server
 	config.maintenanceCfg.FormatFlag = config.formatFlag
@@ -403,12 +409,16 @@ func newServer(f client.Factory, config serverConfig, logger *logrus.Logger) (*s
 	}
 
 	s := &server{
-		namespace:             f.Namespace(),
-		metricsAddress:        config.metricsAddress,
-		kubeClientConfig:      clientConfig,
-		kubeClient:            kubeClient,
-		discoveryClient:       discoveryClient,
-		dynamicClient:         dynamicClient,
+		namespace:        f.Namespace(),
+		metricsAddress:   config.metricsAddress,
+		kubeClientConfig: clientConfig,
+		kubeClient:       kubeClient,
+		discoveryClient:  discoveryClient,
+		dynamicClient:    dynamicClient,
+		// We setup an informer with an empty namespace so that we register changes of resources in any namespace.
+		// This is needed because CRs like Backup, Restore, Schedule etc. reside in other namespaces than the velero
+		// server itself. TODO: check how this will be acomplished
+		//sharedInformerFactory:               informers.NewSharedInformerFactoryWithOptions(veleroClient, 0, informers.WithNamespace("")),
 		crClient:              crClient,
 		ctx:                   ctx,
 		cancelFunc:            cancelFunc,
@@ -446,11 +456,12 @@ func (s *server) run() error {
 		return err
 	}
 
-	s.checkNodeAgent()
-
-	if err := s.initRepoManager(); err != nil {
-		return err
-	}
+	// We don't need the volume (former restic) features for our use case.
+	//s.checkNodeAgent()
+	//
+	//if err := s.initRepoManager(); err != nil {
+	//	return err
+	//}
 
 	if err := s.setupBeforeControllerRun(); err != nil {
 		return err
@@ -473,9 +484,10 @@ func (s *server) setupBeforeControllerRun() error {
 
 	markInProgressCRsFailed(s.ctx, client, s.namespace, s.logger)
 
-	if err := setDefaultBackupLocation(s.ctx, client, s.namespace, s.config.defaultBackupLocation, s.logger); err != nil {
-		return err
-	}
+	// We handle this ourselves in our own controller (also this one is limited to one namespace), skip it
+	//if err := setDefaultBackupLocation(s.ctx, client, s.namespace, s.config.defaultBackupLocation, s.logger); err != nil {
+	//	return err
+	//}
 	return nil
 }
 
@@ -735,6 +747,10 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 		log.Fatal(err, "unable to disable a controller")
 	}
 
+	// TODO: check this:
+	// Empty namespace so that the controller is able to retrieve Backups from any namespace.
+	//			"",
+	// probably the backupStoreGetter?
 	// Enable BSL controller. No need to check whether it's enabled or not.
 	bslr := controller.NewBackupStorageLocationReconciler(
 		s.ctx,
@@ -747,7 +763,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 		backupStoreGetter,
 		s.logger,
 	)
-	if err := bslr.SetupWithManager(s.mgr); err != nil {
+	if err := bslr.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 		s.logger.Fatal(err, "unable to create controller", "controller", controller.BackupStorageLocation)
 	}
 
@@ -759,8 +775,8 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	if _, ok := enabledRuntimeControllers[controller.Backup]; ok {
 		backupper, err := backup.NewKubernetesBackupper(
 			s.crClient,
-			s.discoveryHelper,
-			client.NewDynamicFactory(s.dynamicClient),
+			//s.discoveryHelper,
+			//client.NewDynamicFactory(s.dynamicClient),
 			podexec.NewPodCommandExecutor(s.kubeClientConfig, s.kubeClient.CoreV1().RESTClient()),
 			podvolume.NewBackupperFactory(
 				s.repoLocker,
@@ -800,11 +816,14 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.config.maxConcurrentK8SConnections,
 			s.config.defaultSnapshotMoveData,
 			s.crClient,
-		).SetupWithManager(s.mgr); err != nil {
+		).SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.Backup)
 		}
 	}
 
+	// TODO: check this:
+	// // Empty namespace so that the controller is able to retrieve Schedules from any namespace.
+	//			"",
 	if _, ok := enabledRuntimeControllers[controller.BackupDeletion]; ok {
 		if err := controller.NewBackupDeletionReconciler(
 			s.logger,
@@ -817,7 +836,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			backupStoreGetter,
 			s.credentialFileStore,
 			s.repoEnsurer,
-		).SetupWithManager(s.mgr); err != nil {
+		).SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.BackupDeletion)
 		}
 	}
@@ -833,7 +852,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.metrics,
 			backupOpsMap,
 		)
-		if err := r.SetupWithManager(s.mgr); err != nil {
+		if err := r.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.BackupOperations)
 		}
 	}
@@ -841,8 +860,8 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	if _, ok := enabledRuntimeControllers[controller.BackupFinalizer]; ok {
 		backupper, err := backup.NewKubernetesBackupper(
 			s.mgr.GetClient(),
-			s.discoveryHelper,
-			client.NewDynamicFactory(s.dynamicClient),
+			//s.discoveryHelper,
+			//client.NewDynamicFactory(s.dynamicClient),
 			podexec.NewPodCommandExecutor(s.kubeClientConfig, s.kubeClient.CoreV1().RESTClient()),
 			podvolume.NewBackupperFactory(
 				s.repoLocker,
@@ -870,13 +889,13 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.logger,
 			s.metrics,
 		)
-		if err := r.SetupWithManager(s.mgr); err != nil {
+		if err := r.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.BackupFinalizer)
 		}
 	}
 
 	if _, ok := enabledRuntimeControllers[controller.BackupRepo]; ok {
-		if err := controller.NewBackupRepoReconciler(s.namespace, s.logger, s.mgr.GetClient(), s.config.repoMaintenanceFrequency, s.repoManager).SetupWithManager(s.mgr); err != nil {
+		if err := controller.NewBackupRepoReconciler(s.namespace, s.logger, s.mgr.GetClient(), s.config.repoMaintenanceFrequency, s.repoManager).SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.BackupRepo)
 		}
 	}
@@ -889,13 +908,15 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 		backupSyncReconciler := controller.NewBackupSyncReconciler(
 			s.mgr.GetClient(),
-			s.namespace,
+			// empty namespace so the controller is able to retrieve from any namespace
+			//s.namespace,
+			"",
 			syncPeriod,
 			newPluginManager,
 			backupStoreGetter,
 			s.logger,
 		)
-		if err := backupSyncReconciler.SetupWithManager(s.mgr); err != nil {
+		if err := backupSyncReconciler.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, " unable to create controller ", "controller ", controller.BackupSync)
 		}
 	}
@@ -904,7 +925,9 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	if _, ok := enabledRuntimeControllers[controller.RestoreOperations]; ok {
 		r := controller.NewRestoreOperationsReconciler(
 			s.logger,
-			s.namespace,
+			// empty namespace so the controller is able to retrieve from any namespace
+			//s.namespace,
+			"",
 			s.mgr.GetClient(),
 			s.config.itemOperationSyncFrequency,
 			newPluginManager,
@@ -912,7 +935,7 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.metrics,
 			restoreOpsMap,
 		)
-		if err := r.SetupWithManager(s.mgr); err != nil {
+		if err := r.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.RestoreOperations)
 		}
 	}
@@ -927,14 +950,14 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			backupOpsMap,
 			restoreOpsMap,
 		)
-		if err := r.SetupWithManager(s.mgr); err != nil {
+		if err := r.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.DownloadRequest)
 		}
 	}
 
 	if _, ok := enabledRuntimeControllers[controller.GarbageCollection]; ok {
 		r := controller.NewGCReconciler(s.logger, s.mgr.GetClient(), s.config.garbageCollectionFrequency)
-		if err := r.SetupWithManager(s.mgr); err != nil {
+		if err := r.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.GarbageCollection)
 		}
 	}
@@ -948,10 +971,11 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 	if _, ok := enabledRuntimeControllers[controller.Restore]; ok {
 		restorer, err := restore.NewKubernetesRestorer(
-			s.discoveryHelper,
-			client.NewDynamicFactory(s.dynamicClient),
+			//s.discoveryHelper,
+			//client.NewDynamicFactory(s.dynamicClient),
 			s.config.restoreResourcePriorities,
-			s.kubeClient.CoreV1().Namespaces(),
+			// TODO: check this
+			//s.kubeClient.CoreV1().Namespaces(),
 			podvolume.NewRestorerFactory(
 				s.repoLocker,
 				s.repoEnsurer,
@@ -975,7 +999,9 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 
 		r := controller.NewRestoreReconciler(
 			s.ctx,
-			s.namespace,
+			// empty namespace so the controller is able to retrieve from any namespace
+			//s.namespace,
+			"",
 			restorer,
 			s.mgr.GetClient(),
 			s.logger,
@@ -989,25 +1015,31 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 			s.crClient,
 		)
 
-		if err = r.SetupWithManager(s.mgr); err != nil {
+		if err = r.SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "fail to create controller", "controller", controller.Restore)
 		}
 	}
 
 	if _, ok := enabledRuntimeControllers[controller.Schedule]; ok {
-		if err := controller.NewScheduleReconciler(s.namespace, s.logger, s.mgr.GetClient(), s.metrics, s.config.scheduleSkipImmediately).SetupWithManager(s.mgr); err != nil {
+		// empty namespace so the controller is able to retrieve Schedules from any namespace
+		if err := controller.NewScheduleReconciler("", s.logger, s.mgr.GetClient(), s.metrics, s.config.scheduleSkipImmediately).SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.Schedule)
 		}
 	}
 
 	if _, ok := enabledRuntimeControllers[controller.ServerStatusRequest]; ok {
+		// CaaS: upstream default is 10, we only change this in case we want more than 10 concurrent reconciles
+		maxConcurrentReconciles := 10
+		if s.config.defaultMaxConcurrentReconciles > 10 {
+			maxConcurrentReconciles = s.config.defaultMaxConcurrentReconciles
+		}
 		if err := controller.NewServerStatusRequestReconciler(
 			s.ctx,
 			s.mgr.GetClient(),
 			s.pluginRegistry,
 			clock.RealClock{},
 			s.logger,
-		).SetupWithManager(s.mgr); err != nil {
+		).SetupWithManager(s.mgr, maxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.ServerStatusRequest)
 		}
 	}
@@ -1015,14 +1047,16 @@ func (s *server) runControllers(defaultVolumeSnapshotLocations map[string]string
 	if _, ok := enabledRuntimeControllers[controller.RestoreFinalizer]; ok {
 		if err := controller.NewRestoreFinalizerReconciler(
 			s.logger,
-			s.namespace,
+			// empty namespace so the controller is able to retrieve from any namespace
+			//s.namespace,
+			"",
 			s.mgr.GetClient(),
 			newPluginManager,
 			backupStoreGetter,
 			s.metrics,
 			s.crClient,
 			multiHookTracker,
-		).SetupWithManager(s.mgr); err != nil {
+		).SetupWithManager(s.mgr, s.config.defaultMaxConcurrentReconciles); err != nil {
 			s.logger.Fatal(err, "unable to create controller", "controller", controller.RestoreFinalizer)
 		}
 	}
@@ -1079,7 +1113,8 @@ func markInProgressCRsFailed(ctx context.Context, client ctrlclient.Client, name
 
 func markInProgressBackupsFailed(ctx context.Context, client ctrlclient.Client, namespace string, log logrus.FieldLogger) {
 	backups := &velerov1api.BackupList{}
-	if err := client.List(ctx, backups, &ctrlclient.ListOptions{Namespace: namespace}); err != nil {
+	// Set namespace to "", to get the backups from all namespaces
+	if err := client.List(ctx, backups, &ctrlclient.ListOptions{Namespace: ""}); err != nil {
 		log.WithError(errors.WithStack(err)).Error("failed to list backups")
 		return
 	}
@@ -1104,7 +1139,8 @@ func markInProgressBackupsFailed(ctx context.Context, client ctrlclient.Client, 
 
 func markInProgressRestoresFailed(ctx context.Context, client ctrlclient.Client, namespace string, log logrus.FieldLogger) {
 	restores := &velerov1api.RestoreList{}
-	if err := client.List(ctx, restores, &ctrlclient.ListOptions{Namespace: namespace}); err != nil {
+	// Set namespace to "", to get the restores from all namespaces
+	if err := client.List(ctx, restores, &ctrlclient.ListOptions{Namespace: ""}); err != nil {
 		log.WithError(errors.WithStack(err)).Error("failed to list restores")
 		return
 	}

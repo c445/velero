@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"time"
 
 	"github.com/pkg/errors"
@@ -68,7 +69,7 @@ func NewScheduleReconciler(
 	}
 }
 
-func (c *scheduleReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (c *scheduleReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	s := kube.NewPeriodicalEnqueueSource(c.logger, mgr.GetClient(), &velerov1.ScheduleList{}, scheduleSyncPeriod, kube.PeriodicalEnqueueSourceOption{})
 	return ctrl.NewControllerManagedBy(mgr).
 		// global predicate, works for both For and Watch
@@ -81,7 +82,10 @@ func (c *scheduleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return true
 		})).
 		For(&velerov1.Schedule{}, bld.WithPredicates(kube.SpecChangePredicate{})).
-		WatchesRawSource(s, nil).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).
+		WatchesRawSource(s).
 		Complete(c)
 }
 

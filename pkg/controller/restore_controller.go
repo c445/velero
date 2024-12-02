@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sort"
 	"strings"
 	"time"
@@ -285,9 +286,12 @@ func (r *restoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
-func (r *restoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *restoreReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&api.Restore{}).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).
 		Complete(r)
 }
 
@@ -359,6 +363,7 @@ func (r *restoreReconciler) validateAndComplete(restore *api.Restore) (backupInf
 			api.ScheduleNameLabel: restore.Spec.ScheduleName,
 		}))
 
+		// NOTE: This assumes that Backups and Restores always reside in the same namespace. TODO: check
 		backupList := &api.BackupList{}
 		if err := r.kbClient.List(context.Background(), backupList, &client.ListOptions{LabelSelector: selector}); err != nil {
 			restore.Status.ValidationErrors = append(restore.Status.ValidationErrors, "Unable to list backups for schedule")
@@ -376,7 +381,8 @@ func (r *restoreReconciler) validateAndComplete(restore *api.Restore) (backupInf
 		}
 	}
 
-	info, err := r.fetchBackupInfo(restore.Spec.BackupName)
+	// NOTE: This assumes that Backups and Restores always reside in the same namespace. TODO: check
+	info, err := r.fetchBackupInfo(restore.Spec.BackupName, restore.Namespace)
 	if err != nil {
 		restore.Status.ValidationErrors = append(restore.Status.ValidationErrors, fmt.Sprintf("Error retrieving backup: %v", err))
 		return backupInfo{}, nil
@@ -450,8 +456,10 @@ func mostRecentCompletedBackup(backups []api.Backup) api.Backup {
 
 // fetchBackupInfo checks the backup lister for a backup that matches the given name. If it doesn't
 // find it, it returns an error.
-func (r *restoreReconciler) fetchBackupInfo(backupName string) (backupInfo, error) {
-	return fetchBackupInfoInternal(r.kbClient, r.namespace, backupName)
+// NOTE: We adjust fetchBackupInfo to also accept a namespace explicitly, which will be the namespace of the
+// found Restore. As a corollary, this means that Restores and corresponding Backups must reside in the same namespace
+func (r *restoreReconciler) fetchBackupInfo(backupName string, namespace string) (backupInfo, error) {
+	return fetchBackupInfoInternal(r.kbClient, namespace, backupName)
 }
 
 func fetchBackupInfoInternal(kbClient client.Client, namespace, backupName string) (backupInfo, error) {
@@ -551,6 +559,7 @@ func (r *restoreReconciler) runValidatedRestore(restore *api.Restore, info backu
 
 	restoreReq := &pkgrestore.Request{
 		Log:                      restoreLog,
+		Location:                 info.location,
 		Restore:                  restore,
 		Backup:                   info.backup,
 		PodVolumeBackups:         podVolumeBackups,
@@ -707,7 +716,7 @@ func (r *restoreReconciler) deleteExternalResources(restore *api.Restore) error 
 		return nil
 	}
 
-	backupInfo, err := r.fetchBackupInfo(restore.Spec.BackupName)
+	backupInfo, err := r.fetchBackupInfo(restore.Spec.BackupName, r.namespace)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			r.logger.Errorf("got not found error: %v, skip deleting the restore files in object storage", err)

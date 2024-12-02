@@ -135,11 +135,11 @@ func (r *serverStatusRequestReconciler) Reconcile(ctx context.Context, req ctrl.
 	return ctrl.Result{RequeueAfter: statusRequestResyncPeriod}, nil
 }
 
-func (r *serverStatusRequestReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *serverStatusRequestReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&velerov1api.ServerStatusRequest{}).
 		WithOptions(controller.Options{
-			MaxConcurrentReconciles: 10,
+			MaxConcurrentReconciles: maxConcurrentReconciles,
 		}).
 		Complete(r)
 }

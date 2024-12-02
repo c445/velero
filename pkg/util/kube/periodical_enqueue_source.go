@@ -31,7 +31,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
@@ -62,11 +61,13 @@ type PeriodicalEnqueueSource struct {
 }
 
 type PeriodicalEnqueueSourceOption struct {
-	OrderFunc func(objList client.ObjectList) client.ObjectList
+	OrderFunc  func(objList client.ObjectList) client.ObjectList
+	Predicates []predicate.Predicate
 }
 
 // Start enqueue items periodically. The predicates only apply to the GenericEvent
-func (p *PeriodicalEnqueueSource) Start(ctx context.Context, h handler.EventHandler, q workqueue.RateLimitingInterface, predicates ...predicate.Predicate) error {
+// CaaS: Remove handler.EventHandler and predicates as they are unused and not support in the controller runtime version we imported
+func (p *PeriodicalEnqueueSource) Start(ctx context.Context, q workqueue.RateLimitingInterface) error {
 	go wait.Until(func() {
 		p.logger.Debug("enqueueing resources ...")
 		// empty the list otherwise the result of the new list call will be appended
@@ -92,7 +93,7 @@ func (p *PeriodicalEnqueueSource) Start(ctx context.Context, h handler.EventHand
 				return nil
 			}
 			event := event.GenericEvent{Object: obj}
-			for _, predicate := range predicates {
+			for _, predicate := range p.option.Predicates {
 				if !predicate.Generic(event) {
 					p.logger.Debugf("skip enqueue object %s/%s due to the predicate.", obj.GetNamespace(), obj.GetName())
 					return nil
