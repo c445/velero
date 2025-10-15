@@ -370,6 +370,7 @@ func TestBackupSyncControllerRun(t *testing.T) {
 					backupNames = append(backupNames, bucket.backup.Name)
 					backupStore.On("GetBackupMetadata", bucket.backup.Name).Return(bucket.backup, nil)
 					backupStore.On("GetPodVolumeBackups", bucket.backup.Name).Return(bucket.podVolumeBackups, nil)
+					backupStore.On("BackupExists", "bucket-1", backup.backup.Name).Return(true, nil)
 				}
 				backupStore.On("ListBackups").Return(backupNames, nil)
 			}
